@@ -30,6 +30,7 @@ class ExportEmployeesByRegularUserRegression extends SugarCRMScenario
 
         $this->login('jim', 'jim')
             ->send($request)
-            ->expectSubstring('No access');
+            ->expectStatusCode(500)
+            ->expectSubstring('No access', 'Response should contain an error message: "No access"');
     }
 }

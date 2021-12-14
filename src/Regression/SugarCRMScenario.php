@@ -25,12 +25,9 @@ abstract class SugarCRMScenario extends Scenario
             $payload
         );
         $response = $this->client->send($tokenRequest);
-        $this->logger->debug("Getting access_token");
         if (($token = (json_decode($response->getBody()->getContents()))->access_token) == null) {
             throw new \RuntimeException("Login failed");
         }
-
-        $this->logger->debug("Getting PHPSESSID");
 
         $sidRequest = new Psr7\Request(
             'POST',
@@ -42,7 +39,6 @@ abstract class SugarCRMScenario extends Scenario
         if (!preg_match("/PHPSESSID=([^;]+);/", $response->getHeaderLine('Set-Cookie'), $m)) {
             throw new \RuntimeException("Session ID not found");
         }
-        $this->logger->debug('Obtained session');
         $this->session = new SugarSession($token);
         $this->lastResponse = $response;
         return $this;

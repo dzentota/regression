@@ -1,0 +1,68 @@
+#!/usr/bin/env php
+<?php
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+use Regression\RegressionException;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\SingleCommandApplication;
+use Symfony\Component\Console\Style\SymfonyStyle;
+
+(new SingleCommandApplication())
+    ->setName('Regression Testing') // Optional
+    ->setVersion('0.1.0') // Optional
+    ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
+    ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
+    ->setCode(function (InputInterface $input, OutputInterface $output) {
+
+        $customRecursiveIterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input->getOption('tests_dir')));
+        $customRegexIterator = new RegexIterator($customRecursiveIterator, '/^.+Regression\.php$/',
+            RecursiveRegexIterator::GET_MATCH);
+        $client = new GuzzleHttp\Client([
+            'base_uri' => $input->getArgument('base_uri'),
+            'http_errors' => false,
+            'verify' => false,
+            'cookies' => true
+        ]);
+
+        $io = new SymfonyStyle($input, $output);
+        $io->title('Running Regression Tests...');
+
+        $testsCount = 0;
+        $failed = 0;
+        $success = 0;
+        $regressions = [];
+        $io->progressStart(iterator_count($customRegexIterator));
+        foreach ($customRegexIterator as $match) {
+            $classFile = $match[0];
+            require_once $classFile;
+            $class = basename($classFile, '.php');
+            /**
+             * @var \Regression\Scenario $scenario
+             */
+            $scenario = new $class($client);
+            $testsCount++;
+            try {
+                $scenario->run();
+                $success++;
+            } catch (RegressionException $exception) {
+                $regressions[] = sprintf('%s: "%s"', $scenario->getRegressionDescription(), $exception->getMessage());
+                $failed++;
+            } finally {
+                $io->progressAdvance();
+            }
+        }
+        $io->progressFinish();
+        $io->horizontalTable(['Total', 'Success', 'Failed'], [
+            [$testsCount, $success, $failed]
+        ]);
+        if ($failed === 0) {
+            $io->success('No issues found');
+        } else {
+            $io->error('Regression!');
+            $io->listing($regressions);
+        }
+    })
+    ->run();

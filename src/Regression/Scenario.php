@@ -6,7 +6,6 @@ namespace Regression;
 use GuzzleHttp\Client;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Psr\Log\LoggerInterface;
 
 /**
  * Class Scenario
@@ -26,11 +25,7 @@ abstract class Scenario
      * @var Session|null
      */
     protected ?Session $session;
-    /**
-     * @var LoggerInterface
-     */
-    protected LoggerInterface $logger;
-    
+
     /**
      * @var array
      */
@@ -39,12 +34,10 @@ abstract class Scenario
     /**
      * Scenario constructor.
      * @param Client $client
-     * @param LoggerInterface $logger
      */
-    public function __construct(Client $client, LoggerInterface $logger)
+    public function __construct(Client $client)
     {
         $this->client = $client;
-        $this->logger = $logger;
     }
 
     /**
@@ -102,10 +95,8 @@ abstract class Scenario
      */
     public function expectSubstring(string $substring, ?string $errorMessage = null): self
     {
-        $this->logger->debug("Expecting '$substring' in the response");
         if (false === strpos($this->lastResponse->getBody()->getContents(), $substring)) {
-            $this->logger->error($errorMessage?? "The response does contain substring '$substring'");
-            throw new RegressionException($this->getRegressionDescription());
+            throw new RegressionException($errorMessage ?? "The response does contain substring '$substring'");
         }
         return $this;
     }
@@ -118,10 +109,8 @@ abstract class Scenario
      */
     public function expectRegexp(string $regexp, ?string $errorMessage = null): self
     {
-        $this->logger->debug("Expecting response to match regexp '$regexp'");
         if (!preg_match($regexp, $this->lastResponse->getBody()->getContents())) {
-            $this->logger->error($errorMessage?? "The response does match regexp '$regexp'");
-            throw new RegressionException($this->getRegressionDescription());
+            throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");
         }
         return $this;
     }
@@ -131,12 +120,20 @@ abstract class Scenario
      * @param string|null $errorMessage
      * @throws RegressionException
      */
-    public function expect(callable $callback, ?string $errorMessage = null)
+    public function expect(callable $callback, ?string $errorMessage = null): self
     {
         if (false === $callback($this->lastResponse)) {
-            $this->logger->error($errorMessage?? 'The response does not fit expectations');
-            throw new RegressionException($this->getRegressionDescription());
+            throw new RegressionException($errorMessage ?? 'The response does not fit expectations');
         }
+        return $this;
+    }
+
+    public function expectStatusCode(int $status, ?string $errorMessage = null): self
+    {
+        if ($this->lastResponse->getStatusCode() !== $status) {
+            throw new RegressionException($errorMessage ?? sprintf('%s status code is expected, %s given', $status, $this->lastResponse->getStatusCode()));
+        }
+        return $this;
     }
 
     /**
@@ -148,10 +145,8 @@ abstract class Scenario
      */
     public function extractRegexp(string $variableName, string $regexp, int $group = 1): self
     {
-        $this->logger->debug("Extracting variable from the response by regexp '$regexp'");
         if (!preg_match($regexp, $this->lastResponse->getBody()->getContents(), $m)) {
-            $this->logger->error($errorMessage?? "The response does match regexp '$regexp'");
-            throw new RegressionException($this->getRegressionDescription());
+            throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");
         }
         $this->vars[$variableName] = $m[$group];
         return $this;
@@ -163,6 +158,6 @@ abstract class Scenario
      */
     public function getVar(string $variableName)
     {
-        return $this->vars[$variableName]?? null;
+        return $this->vars[$variableName] ?? null;
     }
 }

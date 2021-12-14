@@ -1,0 +1,10 @@
+{
+  "main": "bin/regression.php",
+  "output": "regression.phar",
+  "stub": true,
+  "directories": [
+    "src/",
+    "vendor/"
+  ],
+  "files": ["vendor/autoload.php"]
+}
