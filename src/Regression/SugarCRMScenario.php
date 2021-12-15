@@ -9,6 +9,8 @@ abstract class SugarCRMScenario extends Scenario
 {
     public function login(string $username, string $password): self
     {
+        $this->client->getConfig('cookies')->clear();
+
         $payload = json_encode([
             'username' => $username,
             'password' => $password,

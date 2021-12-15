@@ -5,14 +5,14 @@ declare(strict_types=1);
 use GuzzleHttp\Psr7\Request;
 use Regression\SugarCRMScenario;
 
-class ExportEmployeesByRegularUserRegression extends SugarCRMScenario
+class ExportEmployeesRegression extends SugarCRMScenario
 {
     /**
      * @return string
      */
     public function getRegressionDescription(): string
     {
-        return 'Export of Employees is available for a regular user';
+        return 'Broken access control. Export of Employees is available for a regular user';
     }
 
     /**

@@ -60,7 +60,7 @@ abstract class Scenario
      */
     protected function initSession(RequestInterface $request): RequestInterface
     {
-        if ($this->session !== null) {
+        if (isset($this->session)) {
             return $this->session->init($request);
         }
         return $request;
@@ -95,7 +95,8 @@ abstract class Scenario
      */
     public function expectSubstring(string $substring, ?string $errorMessage = null): self
     {
-        if (false === strpos($this->lastResponse->getBody()->getContents(), $substring)) {
+        $content = $this->lastResponse->getBody()->getContents();
+        if (false === strpos($content, $substring)) {
             throw new RegressionException($errorMessage ?? "The response does contain substring '$substring'");
         }
         return $this;
