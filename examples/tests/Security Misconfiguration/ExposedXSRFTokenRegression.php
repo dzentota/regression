@@ -27,6 +27,7 @@ class ExposedXSRFTokenRegression extends SugarCRMScenario
         );
 
         $scenario = $this->login('admin', 'asdf')
+            ->bwcLogin()
             ->send($listRequest)
             ->extractRegexp('reportId', '~index\.php\?module=ReportMaker&offset=1&stamp=.*?&return_module=ReportMaker&action=EditView&record=(.*?)"~is');
 

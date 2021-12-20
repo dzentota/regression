@@ -1,5 +1,5 @@
 {
-  "main": "bin/regression.php",
+  "main": "bin/regression",
   "output": "regression.phar",
   "stub": true,
   "directories": [

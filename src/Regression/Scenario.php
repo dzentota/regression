@@ -26,14 +26,20 @@ abstract class Scenario
      */
     protected ?Session $session;
 
+    /**
+     * @var callable|null
+     */
     protected $beforeRequest;
 
+    /**
+     * @var callable|null
+     */
     protected $afterResponse;
 
     /**
      * @var array
      */
-    private array $vars;
+    private array $vars = [];
 
     /**
      * Scenario constructor.
@@ -63,13 +69,6 @@ abstract class Scenario
         $this->afterResponse = $callback;
         return $this;
     }
-
-    /**
-     * @param string $username
-     * @param string $password
-     * @return $this
-     */
-    abstract public function login(string $username, string $password): self;
 
     /**
      * @return string
@@ -102,7 +101,6 @@ abstract class Scenario
     /**
      * @param RequestInterface $request
      * @return $this
-     * @throws \GuzzleHttp\Exception\GuzzleException
      */
     public function send(RequestInterface $request): self
     {
@@ -177,7 +175,7 @@ abstract class Scenario
      * @return $this
      * @throws RegressionException
      */
-    public function extractRegexp(string $variableName, string $regexp, int $group = 1): self
+    public function extractRegexp(string $variableName, string $regexp, int $group = 1, ?string $errorMessage = null): self
     {
         if (!preg_match($regexp, (string) $this->lastResponse->getBody(), $m)) {
             throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");

@@ -29,6 +29,7 @@ class SendTestEmailRegression extends SugarCRMScenario
         );
 
         $this->login('jim', 'jim')
+            ->bwcLogin()
             ->send($request)
             ->expectStatusCode(500)
             ->expectSubstring('Unauthorized access to administration.');

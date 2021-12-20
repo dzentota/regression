@@ -18,7 +18,6 @@ abstract class SugarCRMScenario extends Scenario
 
     public function login(string $username, string $password): self
     {
-        $this->client->getConfig('cookies')->clear();
         $payload = json_encode([
             'username' => $username,
             'password' => $password,
@@ -34,40 +33,27 @@ abstract class SugarCRMScenario extends Scenario
             ['Content-Type' => 'application/json'],
             $payload
         );
-        if (isset($this->beforeRequest)) {
-            $beforeRequest = $this->beforeRequest;
-            $beforeRequest($tokenRequest);
-        }
-        $response = $this->client->send($tokenRequest);
-        if (isset($this->afterResponse)) {
-            $afterResponse = $this->afterResponse;
-            $afterResponse(clone $response);
-        }
-
-        if (($token = (json_decode((string)$response->getBody()))->access_token) === null) {
+        $this->send($tokenRequest);
+        if (($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
             throw new \RuntimeException("Login failed");
         }
+        $this->session = new SugarSession($token);
+        return $this;
+    }
 
+    public function bwcLogin(): self
+    {
+        $this->client->getConfig('cookies')->clear();
         $sidRequest = new Psr7\Request(
             'POST',
             $this->prependBase('/oauth2/bwc/login'),
-            ['Content-Type' => 'application/json', 'OAuth-Token' => $token],
+            ['Content-Type' => 'application/json'],
             json_encode([])
         );
-        if (isset($this->beforeRequest)) {
-            $beforeRequest = $this->beforeRequest;
-            $beforeRequest($sidRequest);
+        $this->send($sidRequest);
+        if (!preg_match("/PHPSESSID=([^;]+);/", $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
+            throw new \RuntimeException("Session ID not found");
         }
-        $response = $this->client->send($sidRequest);
-        if (isset($this->afterResponse)) {
-            $afterResponse = $this->afterResponse;
-            $afterResponse($response);
-        }
-        if (!preg_match("/PHPSESSID=([^;]+);/", $response->getHeaderLine('Set-Cookie'), $m)) {
-        //    throw new \RuntimeException("Session ID not found");
-        }
-        $this->session = new SugarSession($token);
-        $this->lastResponse = $response;
         return $this;
     }
 

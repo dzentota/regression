@@ -30,6 +30,7 @@ class CheckFTSConnectionRegression extends SugarCRMScenario
 
         $this
             ->login('max', 'max')
+            ->bwcLogin()
             ->send($request)
             ->expectStatusCode(500)
             ->expectSubstring('Unauthorized access to administration');

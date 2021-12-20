@@ -20,5 +20,8 @@
     "psr-0": {
       "Regression": "src/"
     }
+  },
+  "require-dev": {
+    "psalm/phar": "^4.10"
   }
 }
