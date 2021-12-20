@@ -2,6 +2,9 @@
 <?php
 require dirname(__DIR__) . '/vendor/autoload.php';
 
+use GuzzleHttp\Psr7\Message;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 use Regression\RegressionException;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -15,6 +18,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->setVersion('0.1.0') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
+    ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
         $customRecursiveIterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input->getOption('tests_dir')));
@@ -43,6 +47,20 @@ use Symfony\Component\Console\Style\SymfonyStyle;
              * @var \Regression\Scenario $scenario
              */
             $scenario = new $class($client);
+            if ($input->getOption('debug')) {
+                $scenario->onRequest(function (RequestInterface $request) use ($io) {
+                    $io->newLine(2);
+                    $io->title('Request to ' . $request->getUri());
+                    $io->section(
+                        Message::toString($request)
+                    );
+                })->onResponse(function (ResponseInterface $response) use ($io) {
+                        $io->title('Response');
+                        $io->section(
+                            Message::toString($response)
+                        );
+                    });
+            }
             $testsCount++;
             try {
                 $scenario->run();

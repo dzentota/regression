@@ -5,14 +5,14 @@ declare(strict_types=1);
 use GuzzleHttp\Psr7\Request;
 use Regression\SugarCRMScenario;
 
-class RelateFieldDenormalizationRegression extends SugarCRMScenario
+class LoginRegression extends SugarCRMScenario
 {
     /**
      * @return string
      */
     public function getRegressionDescription(): string
     {
-        return 'Broken access control. Relate Fields Denormalization is available for a regular user';
+        return 'Login failed';
     }
 
     /**
@@ -23,13 +23,12 @@ class RelateFieldDenormalizationRegression extends SugarCRMScenario
     {
         $request = new Request(
             'GET',
-            $this->prependBase("/Administration/denormalization/configuration"),
+            $this->prependBase('/me')
         );
 
-        $this
-            ->login('max', 'max')
+        $this->login('admin', 'asdf')
             ->send($request)
-            ->expectStatusCode(403)
-            ->expectSubstring('not_authorized');
+            ->expectStatusCode(200)
+            ->expectSubstring('"user_name":"admin"');
     }
 }

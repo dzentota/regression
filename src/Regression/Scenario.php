@@ -26,6 +26,10 @@ abstract class Scenario
      */
     protected ?Session $session;
 
+    protected $beforeRequest;
+
+    protected $afterResponse;
+
     /**
      * @var array
      */
@@ -38,6 +42,26 @@ abstract class Scenario
     public function __construct(Client $client)
     {
         $this->client = $client;
+    }
+
+    /**
+     * @param callable $callback
+     * @return $this
+     */
+    public function onRequest(callable $callback): self
+    {
+        $this->beforeRequest = $callback;
+        return $this;
+    }
+
+    /**
+     * @param callable $callback
+     * @return $this
+     */
+    public function onResponse(callable $callback): self
+    {
+        $this->afterResponse = $callback;
+        return $this;
     }
 
     /**
@@ -83,7 +107,15 @@ abstract class Scenario
     public function send(RequestInterface $request): self
     {
         $request = $this->initSession($request);
+        if (isset($this->beforeRequest)) {
+            $beforeRequest = $this->beforeRequest;
+            $beforeRequest($request);
+        }
         $this->lastResponse = $this->client->send($request);
+        if (isset($this->afterResponse)) {
+            $afterResponse = $this->afterResponse;
+            $afterResponse($this->lastResponse);
+        }
         return $this;
     }
 
@@ -95,7 +127,7 @@ abstract class Scenario
      */
     public function expectSubstring(string $substring, ?string $errorMessage = null): self
     {
-        $content = $this->lastResponse->getBody()->getContents();
+        $content = (string)$this->lastResponse->getBody();
         if (false === strpos($content, $substring)) {
             throw new RegressionException($errorMessage ?? "The response does contain substring '$substring'");
         }
@@ -110,7 +142,7 @@ abstract class Scenario
      */
     public function expectRegexp(string $regexp, ?string $errorMessage = null): self
     {
-        if (!preg_match($regexp, $this->lastResponse->getBody()->getContents())) {
+        if (!preg_match($regexp, (string)$this->lastResponse->getBody())) {
             throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");
         }
         return $this;
@@ -132,7 +164,8 @@ abstract class Scenario
     public function expectStatusCode(int $status, ?string $errorMessage = null): self
     {
         if ($this->lastResponse->getStatusCode() !== $status) {
-            throw new RegressionException($errorMessage ?? sprintf('%s status code is expected, %s given', $status, $this->lastResponse->getStatusCode()));
+            throw new RegressionException($errorMessage ?? sprintf('%s status code is expected, %s given', $status,
+                    $this->lastResponse->getStatusCode()));
         }
         return $this;
     }
@@ -146,7 +179,7 @@ abstract class Scenario
      */
     public function extractRegexp(string $variableName, string $regexp, int $group = 1): self
     {
-        if (!preg_match($regexp, $this->lastResponse->getBody()->getContents(), $m)) {
+        if (!preg_match($regexp, (string) $this->lastResponse->getBody(), $m)) {
             throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");
         }
         $this->vars[$variableName] = $m[$group];
