@@ -12,5 +12,5 @@ box build
 Test suite for `example.com` can be run as follows:
 
 ```
-$ bin/regression.php 'https://example.com'
+$ ./bin/regression 'https://example.com'
 ```

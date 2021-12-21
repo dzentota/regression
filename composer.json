@@ -22,6 +22,7 @@
     }
   },
   "require-dev": {
-    "psalm/phar": "^4.10"
+    "psalm/phar": "^4.10",
+    "phpunit/phpunit": "10.0.x-dev"
   }
 }

@@ -175,9 +175,13 @@ abstract class Scenario
      * @return $this
      * @throws RegressionException
      */
-    public function extractRegexp(string $variableName, string $regexp, int $group = 1, ?string $errorMessage = null): self
-    {
-        if (!preg_match($regexp, (string) $this->lastResponse->getBody(), $m)) {
+    public function extractRegexp(
+        string $variableName,
+        string $regexp,
+        int $group = 1,
+        ?string $errorMessage = null
+    ): self {
+        if (!preg_match($regexp, (string)$this->lastResponse->getBody(), $m)) {
             throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");
         }
         $this->vars[$variableName] = $m[$group];
