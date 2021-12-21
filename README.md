@@ -12,5 +12,5 @@ box build
 Test suite for `example.com` can be run as follows:
 
 ```
-$ ./bin/regression 'https://example.com'
+$ ./bin/regression -d examples https://example.com
 ```
