@@ -3,16 +3,16 @@
 declare(strict_types=1);
 
 use GuzzleHttp\Psr7\Request;
-use Regression\SugarCRMScenario;
+use Regression\Scenario;
 
-class LoginRegression extends SugarCRMScenario
+class DemoRegression extends Scenario
 {
     /**
      * @return string
      */
     public function getRegressionDescription(): string
     {
-        return 'Login failed';
+        return 'Html page is not available';
     }
 
     /**
@@ -23,12 +23,11 @@ class LoginRegression extends SugarCRMScenario
     {
         $request = new Request(
             'GET',
-            $this->prependBase('/me')
+            '/'
         );
 
-        $this->login('admin', 'asdf')
-            ->send($request)
+        $this->send($request)
             ->expectStatusCode(200)
-            ->expectSubstring('"user_name":"admin"');
+            ->expectSubstring('<title>');
     }
 }
