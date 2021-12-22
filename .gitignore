@@ -3,3 +3,4 @@
 .phpunit.cache
 vendor
 regression.phar
+regression.phar.asc
