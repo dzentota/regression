@@ -23,6 +23,12 @@
   },
   "require-dev": {
     "psalm/phar": "^4.10",
-    "phpunit/phpunit": "10.0.x-dev"
+    "phpunit/phpunit": "^9"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "platform": {
+      "php": "7.4"
+    }
   }
 }
