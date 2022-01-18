@@ -8,6 +8,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 use Regression\RegressionException;
 use Regression\Scenario;
 use Regression\Session;
@@ -243,6 +244,62 @@ final class ScenarioTest extends TestCase
         $exceptionMessage = "Oops. Regexp doesn't match";
         $this->expectExceptionMessage($exceptionMessage);
         $scenario->extractRegexp('foo', '/foobar/s', 1, $exceptionMessage);
+    }
+
+    public function testExtract(): void
+    {
+        $request = new Request('GET', 'https://example.com');
+        $responseText = 'This is a "secret"';
+        $response = new Response(200, [], $responseText);
+        $client = $this->createMock(Client::class);
+        $client->expects($this->once())
+            ->method('send')
+            ->will($this->returnValue($response));
+
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario->send($request);
+        $scenario->extract('secret', function (ResponseInterface $response) {
+            return str_replace('This is a ', '', (string) $response->getBody());
+        });
+        $this->assertEquals('"secret"', $scenario->getVar('secret'));
+    }
+
+    public function testExtractFail(): void
+    {
+        $request = new Request('GET', 'https://example.com');
+        $responseText = 'This is a "secret"';
+        $response = new Response(200, [], $responseText);
+        $client = $this->createMock(Client::class);
+        $client->expects($this->once())
+            ->method('send')
+            ->will($this->returnValue($response));
+
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario->send($request);
+        $this->expectException(RegressionException::class);
+        $scenario->extract('position', function (ResponseInterface $response) {
+            return strpos((string) $response->getBody(), 'world');
+        });
+    }
+
+    public function testExtractFailWithCustomMessage(): void
+    {
+        $request = new Request('GET', 'https://example.com');
+        $responseText = 'This is a "secret"';
+        $response = new Response(200, [], $responseText);
+        $client = $this->createMock(Client::class);
+        $client->expects($this->once())
+            ->method('send')
+            ->will($this->returnValue($response));
+
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario->send($request);
+        $this->expectException(RegressionException::class);
+        $exceptionMessage = 'The position of "world" is not found';
+        $this->expectExceptionMessage($exceptionMessage);
+        $scenario->extract('position', function (ResponseInterface $response) {
+            return strpos((string) $response->getBody(), 'world');
+        }, $exceptionMessage);
     }
 
     public function testExpectStatusCode(): void
