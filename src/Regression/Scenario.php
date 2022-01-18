@@ -190,6 +190,25 @@ abstract class Scenario
 
     /**
      * @param string $variableName
+     * @param callable $callback
+     * @param string|null $errorMessage
+     * @return $this
+     * @throws RegressionException
+     */
+    public function extract(
+        string $variableName,
+        callable $callback,
+        ?string $errorMessage = null
+    ): self {
+        if (false === ($value = $callback($this->lastResponse))) {
+            throw new RegressionException($errorMessage ?? 'Can not extract variable with the provided callback');
+        }
+        $this->vars[$variableName] = $value;
+        return $this;
+    }
+
+    /**
+     * @param string $variableName
      * @return mixed|null
      */
     public function getVar(string $variableName)

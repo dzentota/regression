@@ -58,6 +58,15 @@ abstract class SugarCRMScenario extends Scenario
     }
 
     /**
+     * Extracts anti-CSRF token from the last response to `csrf_token` variable
+     * @throws RegressionException
+     */
+    public function extractCsrfToken()
+    {
+        $this->extractRegexp('csrf_token', '~name="csrf_token"\s+value="(.*?)"~is', 1, 'Can not extract anti-CSRF token from the response');
+    }
+
+    /**
      */
     protected function detectServerUrl(): void
     {
