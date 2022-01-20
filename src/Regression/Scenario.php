@@ -21,6 +21,11 @@ abstract class Scenario
      * @var ResponseInterface
      */
     protected ResponseInterface $lastResponse;
+
+    /**
+     * @var RequestInterface
+     */
+    protected RequestInterface $lastRequest;
     /**
      * @var Session|null
      */
@@ -109,6 +114,7 @@ abstract class Scenario
             $beforeRequest = $this->beforeRequest;
             $beforeRequest($request);
         }
+        $this->lastRequest = $request;
         $this->lastResponse = $this->client->send($request);
         if (isset($this->afterResponse)) {
             $afterResponse = $this->afterResponse;
@@ -214,5 +220,21 @@ abstract class Scenario
     public function getVar(string $variableName)
     {
         return $this->vars[$variableName] ?? null;
+    }
+
+    /**
+     * @return ResponseInterface
+     */
+    public function getLastResponse(): ResponseInterface
+    {
+        return $this->lastResponse;
+    }
+
+    /**
+     * @return RequestInterface
+     */
+    public function getLastRequest(): RequestInterface
+    {
+        return $this->lastRequest;
     }
 }

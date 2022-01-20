@@ -5,6 +5,7 @@ namespace Regression;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7;
+use GuzzleHttp\Psr7\Request;
 
 abstract class SugarCRMScenario extends Scenario
 {
@@ -64,6 +65,59 @@ abstract class SugarCRMScenario extends Scenario
     public function extractCsrfToken(): self
     {
         return $this->extractRegexp('csrf_token', '~name="csrf_token"\s+value="(.*?)"~is', 1, 'Can not extract anti-CSRF token from the response');
+    }
+
+    /**
+     * @param string $action
+     * @param array $data
+     * @param string|null $formUri
+     * @param string $method
+     * @param array $headers
+     * @return $this
+     * @throws RegressionException
+     */
+    public function submitForm(string $action, array $data, ?string $formUri = null, string $method = 'POST', array $headers = []): self
+    {
+        if ($formUri !== null) {
+            $formRequest = new Request(
+                'GET',
+                $formUri
+            );
+            $this->send($formRequest)
+                ->extractCsrfToken();
+        }
+        if (isset($this->lastRequest)) {
+            $headers['Referer'] = $this->client->getConfig('base_uri') . $this->lastRequest->getRequestTarget();
+        }
+        $request = new Request(
+            $method,
+            $action,
+            [
+                'Content-Type' => 'application/x-www-form-urlencoded',
+            ] + $headers,
+            http_build_query($data + ['csrf_token' => $this->getVar('csrf_token')])
+        );
+        return $this->send($request);
+    }
+
+    /**
+     * @param string $endpoint
+     * @param string $method
+     * @param array $data
+     * @param array $headers
+     * @return $this
+     */
+    public function apiCall(string $endpoint, string $method = 'GET', array $data = [], array $headers = []): self
+    {
+        $request = new Request(
+            $method,
+            $this->prependBase($endpoint),
+            [
+                'Content-Type' => 'application/json',
+            ] + $headers,
+            json_encode($data)
+        );
+        return $this->send($request);
     }
 
     /**
