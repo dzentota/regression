@@ -124,7 +124,7 @@ abstract class SugarCRMScenario extends Scenario
      */
     protected function detectServerUrl(): void
     {
-        $configResponse = $this->client->get('/cache/config.js');
+        $configResponse = $this->client->get('cache/config.js');
         preg_match('~"serverUrl":"(.*?)"~is', (string)$configResponse->getBody(), $m);
         if (empty($m[1])) {
             throw new \RuntimeException('Cannot determine REST API version');
@@ -134,7 +134,7 @@ abstract class SugarCRMScenario extends Scenario
 
     protected function prependBase(string $endpoint): string
     {
-        return '/' .static::$serverUrl . $endpoint;
+        return static::$serverUrl . $endpoint;
     }
 
 }
