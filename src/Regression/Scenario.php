@@ -105,9 +105,11 @@ abstract class Scenario
 
     /**
      * @param RequestInterface $request
+     * @param array $options
      * @return $this
+     * @throws \GuzzleHttp\Exception\GuzzleException
      */
-    public function send(RequestInterface $request): self
+    public function send(RequestInterface $request, array $options = []): self
     {
         $request = $this->initSession($request);
         if (isset($this->beforeRequest)) {
