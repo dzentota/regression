@@ -76,7 +76,7 @@ abstract class SugarCRMScenario extends Scenario
      * @return $this
      * @throws RegressionException
      */
-    public function submitForm(string $action, array $data, ?string $formUri = null, string $method = 'POST', array $headers = []): self
+    public function submitForm(string $action, array $data, ?string $formUri = null, string $method = 'POST', array $headers = [], $options = []): self
     {
         if ($formUri !== null) {
             $formRequest = new Request(
@@ -97,7 +97,7 @@ abstract class SugarCRMScenario extends Scenario
             ] + $headers,
             http_build_query($data + ['csrf_token' => $this->getVar('csrf_token')])
         );
-        return $this->send($request);
+        return $this->send($request, $options);
     }
 
     /**
@@ -105,9 +105,11 @@ abstract class SugarCRMScenario extends Scenario
      * @param string $method
      * @param array $data
      * @param array $headers
+     * @param array $options
      * @return $this
+     * @throws \GuzzleHttp\Exception\GuzzleException
      */
-    public function apiCall(string $endpoint, string $method = 'GET', array $data = [], array $headers = []): self
+    public function apiCall(string $endpoint, string $method = 'GET', array $data = [], array $headers = [], array $options = []): self
     {
         $request = new Request(
             $method,
@@ -117,7 +119,7 @@ abstract class SugarCRMScenario extends Scenario
             ] + $headers,
             json_encode($data)
         );
-        return $this->send($request);
+        return $this->send($request, $options);
     }
 
     /**
