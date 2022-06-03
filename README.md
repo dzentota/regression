@@ -170,7 +170,7 @@ abstract class OAuthScenario extends Scenario
             $payload
         );
         $this->send($tokenRequest);
-        if (($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
+        if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
             throw new \RuntimeException("Login failed");
         }
         $this->session = new OAuthSession($token);
