@@ -5,6 +5,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 use GuzzleHttp\Psr7\Message;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Regression\AssessmentException;
 use Regression\RegressionException;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -15,14 +16,14 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.1.7') // Optional
+    ->setVersion('0.1.8') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
         $customRecursiveIterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input->getOption('tests_dir')));
-        $customRegexIterator = new RegexIterator($customRecursiveIterator, '/^.+Regression\.php$/',
+        $customRegexIterator = new RegexIterator($customRecursiveIterator, '/^.+(Regression|Assessment)\.php$/',
             RecursiveRegexIterator::GET_MATCH);
         $client = new GuzzleHttp\Client([
             'base_uri' => $input->getArgument('base_uri'),
@@ -38,6 +39,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $failed = 0;
         $success = 0;
         $regressions = [];
+        $vulnerabilities = [];
         $io->progressStart(iterator_count($customRegexIterator));
         foreach ($customRegexIterator as $match) {
             $classFile = $match[0];
@@ -69,21 +71,36 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                 $scenario->run();
                 $success++;
             } catch (RegressionException $exception) {
-                $regressions[] = sprintf('%s: "%s"', $scenario->getRegressionDescription(), $exception->getMessage());
+                $regressions[] = $scenario->getSeverity()?
+                    sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getRegressionDescription(), $exception->getMessage()):
+                    sprintf('%s: "%s"', $scenario->getRegressionDescription(), $exception->getMessage());
+                $failed++;
+            } catch (AssessmentException $exception) {
+                $vulnerabilities[] = $scenario->getSeverity()?
+                    sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getRegressionDescription(), $exception->getMessage()):
+                    sprintf('%s: "%s"', $scenario->getRegressionDescription(), $exception->getMessage());
                 $failed++;
             } finally {
                 $io->progressAdvance();
             }
         }
         $io->progressFinish();
-        $io->horizontalTable(['Total', 'Success', 'Failed'], [
+        $io->horizontalTable(['Total', 'Success', 'Issues'], [
             [$testsCount, $success, $failed]
         ]);
         if ($failed === 0) {
             $io->success('No issues found');
-        } else {
+            return 0;
+        }
+
+        if (count($regressions)) {
             $io->error('Regression!');
             $io->listing($regressions);
         }
+        if (count($vulnerabilities)) {
+            $io->error('Possible vulnerabilities');
+            $io->listing($vulnerabilities);
+        }
+        return 1;
     })
     ->run();
