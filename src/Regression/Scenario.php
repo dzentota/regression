@@ -82,6 +82,27 @@ abstract class Scenario
 
     abstract public function run(): void;
 
+    public function getClassification(): Classification
+    {
+        return Classification::create();
+    }
+
+    /**
+     * @return string
+     */
+    public function getSeverity(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * @return array
+     */
+    public function getTags(): array
+    {
+        return [];
+    }
+
     /**
      * @param RequestInterface $request
      * @return RequestInterface
@@ -130,12 +151,13 @@ abstract class Scenario
      * @param string|null $errorMessage
      * @return $this
      * @throws RegressionException
+     * @throws AssessmentException
      */
     public function expectSubstring(string $substring, ?string $errorMessage = null): self
     {
         $content = (string)$this->lastResponse->getBody();
         if (false === strpos($content, $substring)) {
-            throw new RegressionException($errorMessage ?? "The response does contain substring '$substring'");
+            $this->throwException($errorMessage ?? "The response does contain substring '$substring'");
         }
         return $this;
     }
@@ -145,11 +167,12 @@ abstract class Scenario
      * @param string|null $errorMessage
      * @return $this
      * @throws RegressionException
+     * @throws AssessmentException
      */
     public function expectRegexp(string $regexp, ?string $errorMessage = null): self
     {
         if (!preg_match($regexp, (string)$this->lastResponse->getBody())) {
-            throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");
+            $this->throwException($errorMessage ?? "The response does match regexp '$regexp'");
         }
         return $this;
     }
@@ -157,21 +180,29 @@ abstract class Scenario
     /**
      * @param callable $callback
      * @param string|null $errorMessage
+     * @return Scenario
+     * @throws AssessmentException
      * @throws RegressionException
      */
     public function expect(callable $callback, ?string $errorMessage = null): self
     {
         if (false === $callback($this->lastResponse)) {
-            throw new RegressionException($errorMessage ?? 'The response does not fit expectations');
+            $this->throwException($errorMessage ?? 'The response does not fit expectations');
         }
         return $this;
     }
 
+    /**
+     * @param int $status
+     * @param string|null $errorMessage
+     * @return $this
+     * @throws AssessmentException
+     * @throws RegressionException
+     */
     public function expectStatusCode(int $status, ?string $errorMessage = null): self
     {
         if ($this->lastResponse->getStatusCode() !== $status) {
-            throw new RegressionException($errorMessage ?? sprintf('%s status code is expected, %s given', $status,
-                    $this->lastResponse->getStatusCode()));
+            $this->throwException($errorMessage ?? sprintf('%s status code is expected, %s given', $status, $this->lastResponse->getStatusCode()));
         }
         return $this;
     }
@@ -182,6 +213,7 @@ abstract class Scenario
      * @param int $group
      * @return $this
      * @throws RegressionException
+     * @throws AssessmentException
      */
     public function extractRegexp(
         string $variableName,
@@ -190,7 +222,7 @@ abstract class Scenario
         ?string $errorMessage = null
     ): self {
         if (!preg_match($regexp, (string)$this->lastResponse->getBody(), $m)) {
-            throw new RegressionException($errorMessage ?? "The response does match regexp '$regexp'");
+            $this->throwException($errorMessage ?? "The response does match regexp '$regexp'");
         }
         $this->vars[$variableName] = $m[$group];
         return $this;
@@ -202,6 +234,7 @@ abstract class Scenario
      * @param string|null $errorMessage
      * @return $this
      * @throws RegressionException
+     * @throws AssessmentException
      */
     public function extract(
         string $variableName,
@@ -209,7 +242,7 @@ abstract class Scenario
         ?string $errorMessage = null
     ): self {
         if (false === ($value = $callback($this->lastResponse))) {
-            throw new RegressionException($errorMessage ?? 'Can not extract variable with the provided callback');
+            $this->throwException($errorMessage ?? 'Can not extract variable with the provided callback');
         }
         $this->vars[$variableName] = $value;
         return $this;
@@ -238,5 +271,53 @@ abstract class Scenario
     public function getLastRequest(): RequestInterface
     {
         return $this->lastRequest;
+    }
+
+    /**
+     * @param string $substring
+     * @param $result
+     * @return Scenario
+     */
+    public function assumeSubstring(string $substring, &$result): self
+    {
+        $content = (string)$this->lastResponse->getBody();
+        $result =  false !== strpos($content, $substring);
+        return $this;
+    }
+
+    /**
+     * @param string $regexp
+     * @param $result
+     * @return Scenario
+     */
+    public function assumeRegexp(string $regexp, &$result): self
+    {
+        $result = (bool)preg_match($regexp, (string)$this->lastResponse->getBody());
+        return $this;
+    }
+
+    /**
+     * @param callable $callback
+     * @param $result
+     * @return Scenario
+     */
+    public function assume(callable $callback, &$result): self
+    {
+        $result = (bool)$callback($this->lastResponse);
+        return $this;
+    }
+
+    /**
+     * @param string $message
+     * @return mixed
+     * @throws AssessmentException
+     * @throws RegressionException
+     */
+    private function throwException(string $message)
+    {
+        if ($this instanceof Regression) {
+            throw new RegressionException($message);
+        }
+        throw new AssessmentException($message);
     }
 }
