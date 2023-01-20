@@ -4,8 +4,10 @@ declare(strict_types=1);
 namespace Regression;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Psr7\Request;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 
 /**
  * Class Scenario
@@ -144,6 +146,50 @@ abstract class Scenario
             $afterResponse($this->lastResponse);
         }
         return $this;
+    }
+
+    /**
+     * @param string $url
+     * @param array $headers
+     * @param array $options
+     * @return $this
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     */
+    public function get(string $url, array $headers = [], array $options = []): self
+    {
+        $request = new Request('GET', $url, $headers);
+        return $this->send($request, $options);
+    }
+
+    /**
+     * @param string $url
+     * @param string|resource|StreamInterface|null $body
+     * @param array $headers
+     * @param array $options
+     * @return $this
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     */
+    public function post(string $url, $body, array $headers = [], array $options = []): self
+    {
+        $request = new Request(
+            'POST',
+            $url,
+            $headers,
+            $body
+        );
+        return $this->send($request, $options);
+    }
+
+    /**
+     * @return string
+     */
+    public function getReferer(): string
+    {
+        if (empty($this->getLastRequest())) {
+            throw new \LogicException('Referer is available only after at least on request');
+        }
+        return $this->client->getConfig('base_uri') . '/' . $this->getLastRequest()->getRequestTarget();
+
     }
 
     /**

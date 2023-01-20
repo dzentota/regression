@@ -16,7 +16,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.1.8') // Optional
+    ->setVersion('0.1.9') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
@@ -26,7 +26,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $customRegexIterator = new RegexIterator($customRecursiveIterator, '/^.+(Regression|Assessment)\.php$/',
             RecursiveRegexIterator::GET_MATCH);
         $client = new GuzzleHttp\Client([
-            'base_uri' => $input->getArgument('base_uri'),
+            'base_uri' => rtrim($input->getArgument('base_uri'), '/') . '/',
             'http_errors' => false,
             'verify' => false,
             'cookies' => true
