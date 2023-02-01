@@ -12,11 +12,13 @@ use Psr\Http\Message\ResponseInterface;
 abstract class SugarCRMScenario extends Scenario
 {
     protected static string $serverUrl;
+    protected static array $sugarVersion;
 
     public function __construct(Client $client)
     {
         parent::__construct($client);
         $this->detectServerUrl();
+        $this->detectSugarVersion();
     }
 
     public function login(string $username, string $password): self
@@ -168,8 +170,14 @@ abstract class SugarCRMScenario extends Scenario
      * @return $this
      * @throws RegressionException
      */
-    public function submitForm(string $action, array $data, ?string $formUri = null, string $method = 'POST', array $headers = [], $options = []): self
-    {
+    public function submitForm(
+        string $action,
+        array $data,
+        ?string $formUri = null,
+        string $method = 'POST',
+        array $headers = [],
+        $options = []
+    ): self {
         if ($formUri !== null) {
             $formRequest = new Request(
                 'GET',
@@ -201,8 +209,13 @@ abstract class SugarCRMScenario extends Scenario
      * @return $this
      * @throws \GuzzleHttp\Exception\GuzzleException
      */
-    public function apiCall(string $endpoint, string $method = 'GET', array $data = [], array $headers = [], array $options = []): self
-    {
+    public function apiCall(
+        string $endpoint,
+        string $method = 'GET',
+        array $data = [],
+        array $headers = [],
+        array $options = []
+    ): self {
         $request = new Request(
             $method,
             $this->prependBase($endpoint),
@@ -229,6 +242,16 @@ abstract class SugarCRMScenario extends Scenario
     protected function prependBase(string $endpoint): string
     {
         return static::$serverUrl . $endpoint;
+    }
+
+    protected function detectSugarVersion(): void
+    {
+        $sugarVersionResponse = $this->client->get('sugar_version.json');
+        $data = json_decode((string)$sugarVersionResponse->getBody(), true);
+        if (empty($data['sugar_version'])) {
+            throw new \RuntimeException('Cannot determine SugarCRM version');
+        }
+        static::$sugarVersion = $data;
     }
 
 }
