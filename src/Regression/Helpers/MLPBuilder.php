@@ -112,7 +112,9 @@ PHP;
     {
         return [
             'built_in_version' => $this->version,
-            'acceptable_sugar_versions' => ['*.*.*'],
+            'acceptable_sugar_versions' => [
+                'regex_matches' => ['.*']
+            ],
             'acceptable_sugar_flavors' => ['ENT', 'ULT'],
             'readme' => '',
             'key' => '',

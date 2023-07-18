@@ -5,8 +5,8 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 use GuzzleHttp\Psr7\Message;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Regression\AssessmentException;
 use Regression\RegressionException;
+use Regression\Status;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -16,7 +16,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.1.10') // Optional
+    ->setVersion('0.1.11') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
@@ -69,18 +69,22 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $testsCount++;
             try {
                 $scenario->run();
-                $success++;
+                if ($scenario->getStatus() === Status::UNKNOWN) {
+                    $io->error("Risky. No expectations or assumptions made: {$scenario->getDescription()}");
+                } elseif ($scenario->getStatus() === Status::HAS_ISSUE) {
+                    $vulnerabilities[] = $scenario->getSeverity()?
+                        sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $scenario->getConclusion()):
+                        sprintf('%s: "%s"', $scenario->getDescription(), $scenario->getConclusion());
+                    $failed++;
+                } else {
+                    $success++;
+                }
             } catch (RegressionException $exception) {
                 $regressions[] = $scenario->getSeverity()?
-                    sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getRegressionDescription(), $exception->getMessage()):
-                    sprintf('%s: "%s"', $scenario->getRegressionDescription(), $exception->getMessage());
+                    sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $exception->getMessage()):
+                    sprintf('%s: "%s"', $scenario->getDescription(), $exception->getMessage());
                 $failed++;
-            } catch (AssessmentException $exception) {
-                $vulnerabilities[] = $scenario->getSeverity()?
-                    sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getRegressionDescription(), $exception->getMessage()):
-                    sprintf('%s: "%s"', $scenario->getRegressionDescription(), $exception->getMessage());
-                $failed++;
-            } finally {
+            }  finally {
                 $io->progressAdvance();
             }
         }

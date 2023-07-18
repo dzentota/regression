@@ -17,7 +17,7 @@ class DemoAssessment extends Assessment
     /**
      * @return string
      */
-    public function getRegressionDescription(): string
+    public function getAssessmentDescription(): string
     {
         return 'SugarCRM version disclosure';
     }
@@ -34,10 +34,13 @@ class DemoAssessment extends Assessment
         );
 
         $this->send($request)
-            ->expectStatusCode(200)
-            ->expect(function (ResponseInterface $response) {
-                $json = json_decode($response->getBody()->getContents(), true);
+            ->assume(function (ResponseInterface $response) {
+                if ($this->lastResponse->getStatusCode() !== 200) {
+                    return false;
+                }
+                $json = json_decode((string)$response->getBody(), true);
                 return !empty($json['sugar_version']);
-            }, 'SugarCRM version disclosure via sugar_version.json');
+            }, $knownSugarVersion)
+            ->checkAssumptions('SugarCRM version disclosure via sugar_version.json', $knownSugarVersion);
     }
 }

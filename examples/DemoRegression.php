@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 use GuzzleHttp\Psr7\Request;
-use Regression\Scenario;
+use Regression\Regression;
 
-class DemoRegression extends Scenario
+class DemoRegression extends Regression
 {
     /**
      * @return string
