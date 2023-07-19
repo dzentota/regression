@@ -46,7 +46,7 @@ abstract class Scenario
     /**
      * @var array
      */
-    private array $vars = [];
+    protected array $vars = [];
 
     protected string $status = Status::UNKNOWN;
 

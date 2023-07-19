@@ -26,12 +26,13 @@ abstract class Assessment extends Scenario
      * @return $this
      */
     public function extractRegexp(
-        string &$variableName,
+        string $variableName,
         string $regexp,
         int $group = 1
     ): self {
         if (preg_match($regexp, (string)$this->lastResponse->getBody(), $m)) {
-            $variableName = $m[$group];
+            $this->status = Status::NO_ISSUE;
+            $this->vars[$variableName] = $m[$group];
         }
         return $this;
     }
@@ -42,11 +43,12 @@ abstract class Assessment extends Scenario
      * @return $this
      */
     public function extract(
-        string &$variableName,
+        string $variableName,
         callable $callback
     ): self {
-        if (false === ($value = $callback($this->lastResponse))) {
-            $variableName = $value;
+        if (false !== ($value = $callback($this->lastResponse))) {
+            $this->status = Status::NO_ISSUE;
+            $this->vars[$variableName] = $value;
         }
         return $this;
     }
