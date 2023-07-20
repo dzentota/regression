@@ -3,8 +3,11 @@
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use GuzzleHttp\Psr7\Message;
+use HeadlessChromium\BrowserFactory;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Regression\Client\Chrome;
+use Regression\Client\Guzzle;
 use Regression\RegressionException;
 use Regression\Status;
 use Symfony\Component\Console\Input\InputArgument;
@@ -25,12 +28,6 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $customRecursiveIterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input->getOption('tests_dir')));
         $customRegexIterator = new RegexIterator($customRecursiveIterator, '/^.+(Regression|Assessment)\.php$/',
             RecursiveRegexIterator::GET_MATCH);
-        $client = new GuzzleHttp\Client([
-            'base_uri' => rtrim($input->getArgument('base_uri'), '/') . '/',
-            'http_errors' => false,
-            'verify' => false,
-            'cookies' => true
-        ]);
 
         $io = new SymfonyStyle($input, $output);
         $io->title('Running Regression Tests...');
@@ -48,7 +45,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             /**
              * @var \Regression\Scenario $scenario
              */
-            $scenario = new $class($client);
+            $scenario = new $class($input->getArgument('base_uri'));
             if ($input->getOption('debug')) {
                 $scenario->onRequest(function (RequestInterface $request, array $options = []) use ($io) {
                     $io->newLine(2);

@@ -8,6 +8,8 @@ use GuzzleHttp\Psr7\Request;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
+use Regression\Client\ClientInterface;
+use Regression\Client\Guzzle;
 
 /**
  * Class Scenario
@@ -16,9 +18,9 @@ use Psr\Http\Message\StreamInterface;
 abstract class Scenario
 {
     /**
-     * @var Client
+     * @var ClientInterface
      */
-    protected Client $client;
+    protected ClientInterface $client;
     /**
      * @var ResponseInterface
      */
@@ -52,13 +54,43 @@ abstract class Scenario
 
     protected ?string $conclusion;
 
+    protected string $baseUri;
+
     /**
      * Scenario constructor.
-     * @param Client $client
      */
-    public function __construct(Client $client)
+    public function __construct(string $baseUri)
+    {
+        $this->baseUri = $baseUri;
+    }
+
+    /**
+     * @param ClientInterface $client
+     * @return $this
+     */
+    public function setClient(ClientInterface $client): Scenario
     {
         $this->client = $client;
+        return $this;
+    }
+
+    public function getClient(): ClientInterface
+    {
+        if (empty($this->client)) {
+            $this->client = $this->initClient();
+        }
+        return $this->client;
+    }
+
+    protected function initClient(): ClientInterface
+    {
+        $guzzle = new Client([
+            'base_uri' => $this->baseUri,
+            'http_errors' => false,
+            'verify' => false,
+            'cookies' => true
+        ]);
+        return new Guzzle($guzzle);
     }
 
     /**
@@ -141,7 +173,7 @@ abstract class Scenario
             $beforeRequest($request, $options);
         }
         $this->lastRequest = $request;
-        $this->lastResponse = $this->client->send($request, $options);
+        $this->lastResponse = $this->getClient()->send($request, $options);
         if (isset($this->afterResponse)) {
             $afterResponse = $this->afterResponse;
             $afterResponse($this->lastResponse);
@@ -189,7 +221,7 @@ abstract class Scenario
         if (empty($this->getLastRequest())) {
             throw new \LogicException('Referer is available only after at least on request');
         }
-        return $this->client->getConfig('base_uri') . '/' . $this->getLastRequest()->getRequestTarget();
+        return $this->getClient()->getConfig('base_uri') . '/' . $this->getLastRequest()->getRequestTarget();
 
     }
 

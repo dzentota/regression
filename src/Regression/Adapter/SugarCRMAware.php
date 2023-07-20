@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Regression\Adapter;
 
-use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\MultipartStream;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Utils;
@@ -16,9 +15,9 @@ trait SugarCRMAware
     protected static string $serverUrl;
     protected static array $sugarVersion;
 
-    public function __construct(Client $client)
+    public function __construct(string $baseUri)
     {
-        parent::__construct($client);
+        parent::__construct($baseUri);
         $this->detectServerUrl();
         $this->detectSugarVersion();
     }
@@ -127,7 +126,7 @@ trait SugarCRMAware
 
     public function bwcLogin(): self
     {
-        $this->client->getConfig('cookies')->clear();
+//        $this->client->getConfig('cookies')?->clear();
         $sidRequest = new Request(
             'POST',
             $this->prependBase('/oauth2/bwc/login'),
@@ -188,7 +187,7 @@ trait SugarCRMAware
                 ->extractCsrfToken();
         }
         if (isset($this->lastRequest)) {
-            $headers['Referer'] = $this->client->getConfig('base_uri') . $this->lastRequest->getRequestTarget();
+            $headers['Referer'] = $this->baseUri . $this->lastRequest->getRequestTarget();
         }
         $request = new Request(
             $method,
@@ -232,7 +231,8 @@ trait SugarCRMAware
      */
     protected function detectServerUrl(): void
     {
-        $configResponse = $this->client->get('cache/config.js');
+        $request = new Request('GET', 'cache/config.js');
+        $configResponse = $this->getClient()->send($request);
         preg_match('~"serverUrl":"(.*?)"~is', (string)$configResponse->getBody(), $m);
         if (empty($m[1])) {
             throw new \RuntimeException('Cannot determine REST API version');
@@ -247,7 +247,8 @@ trait SugarCRMAware
 
     protected function detectSugarVersion(): void
     {
-        $sugarVersionResponse = $this->client->get('sugar_version.json');
+        $request = new Request('GET', 'sugar_version.json');
+        $sugarVersionResponse = $this->getClient()->send($request);
         $data = json_decode((string)$sugarVersionResponse->getBody(), true);
         if (empty($data['sugar_version'])) {
             throw new \RuntimeException('Cannot determine SugarCRM version');

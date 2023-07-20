@@ -15,7 +15,8 @@
     "ext-json": "*",
     "guzzlehttp/guzzle": "6.5.6",
     "symfony/console": "^5",
-    "ext-sockets": "*"
+    "ext-sockets": "*",
+    "chrome-php/chrome": "1.10.x-dev"
   },
   "autoload": {
     "psr-0": {
@@ -29,7 +30,7 @@
   "config": {
     "optimize-autoloader": true,
     "platform": {
-      "php": "7.4"
+      "php": "8.2"
     }
   }
 }
