@@ -255,4 +255,31 @@ trait SugarCRMAware
         }
         static::$sugarVersion = $data;
     }
+
+    public function uploadDocumentTempFile(
+        string $filename,
+        string $contents = '',
+        array $headers = [],
+        array $options = []
+    ): self
+    {
+        $request = new Request(
+            'POST',
+            $this->prependBase('/Documents/temp/file/filename?platform=base'),
+            $headers,
+        );
+
+        $options = [
+                'multipart' => [
+                    [
+                        'Content-Type' => 'multipart/form-data',
+                        'name' => 'filename',
+                        'contents' => $contents,
+                        'filename' => $filename,
+                    ],
+                ],
+            ] + $options;
+
+        return $this->send($request, $options);
+    }
 }
