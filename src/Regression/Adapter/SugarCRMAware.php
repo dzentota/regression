@@ -7,6 +7,7 @@ use GuzzleHttp\Psr7\MultipartStream;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\ResponseInterface;
+use Regression\Client\Chrome;
 use Regression\RegressionException;
 use Regression\SugarSession;
 
@@ -24,25 +25,74 @@ trait SugarCRMAware
 
     public function login(string $username, string $password): self
     {
-        $payload = json_encode([
-            'username' => $username,
-            'password' => $password,
-            'grant_type' => 'password',
-            'client_id' => 'sugar',
-            'platform' => 'base',
-            'client_secret' => ''
-        ]);
+//        if ($this->isHeadlessClient()) {
+//            /**
+//             * @var Chrome $client
+//             */
+//            $client = $this->getClient();
+//            $endpoint = $this->getBaseUri() . $this->prependBase("/oauth2/token?platform=base");
+//            $ajaxJsCode = <<<JS
+//                // Data to send in the POST request (replace with your own data)
+//                var postData = JSON.stringify({
+//                    username: '{$username}',
+//                    password: '{$password}',
+//                    grant_type:'password',
+//                    client_id: 'sugar',
+//                    platform: 'base',
+//                    client_secret: ''
+//                });
+//                async function performAjaxRequest() {
+//                    try {
+//                      const response = await fetch('{$endpoint}', {
+//                        method: 'POST',
+//                        headers: {
+//                          'Content-Type': 'application/json'
+//                        },
+//                        body: postData
+//                      });
+//
+//                      if (response.ok) {
+//                        return await response.text();
+//                      } else {
+//                        throw new Error('Network response was not ok.');
+//                      }
+//                    } catch (error) {
+//                      throw new Error(error.message);
+//                    }
+//                }
+//                // Execute the function and return the response
+//                performAjaxRequest();
+//            JS;
+//
+//            // Evaluate the JavaScript code in the browser context
+//            $responseData = $client->getCurrentPage()
+//                ->evaluate($ajaxJsCode)
+//                ->waitForResponse()
+//                ->getReturnValue();
+//            if (($token = (json_decode((string)$responseData))->access_token) === null) {
+//                throw new \RuntimeException("Login failed");
+//            }
+//        } else {
+            $payload = json_encode([
+                'username' => $username,
+                'password' => $password,
+                'grant_type' => 'password',
+                'client_id' => 'sugar',
+                'platform' => 'base',
+                'client_secret' => ''
+            ]);
 
-        $tokenRequest = new Request(
-            'POST',
-            $this->prependBase("/oauth2/token?platform=base"),
-            ['Content-Type' => 'application/json'],
-            $payload
-        );
-        $this->send($tokenRequest);
-        if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
-            throw new \RuntimeException("Login failed");
-        }
+            $tokenRequest = new Request(
+                'POST',
+                $this->prependBase("/oauth2/token?platform=base"),
+                ['Content-Type' => 'application/json'],
+                $payload
+            );
+            $this->send($tokenRequest);
+            if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
+                throw new \RuntimeException("Login failed");
+            }
+//        }
         $this->session = new SugarSession($token);
         return $this;
     }
@@ -126,17 +176,79 @@ trait SugarCRMAware
 
     public function bwcLogin(): self
     {
+//        if ($this->isHeadlessClient()) {
+//            /**
+//             * @var Chrome $client
+//             */
+//            $client = $this->getClient();
+//            $endpoint = $this->getBaseUri() . $this->prependBase('/oauth2/bwc/login');
+//            $headers = [];
+//            $request = new Request('GET', $endpoint, [
+//                'Content-Type' => 'application/json',
+//                'OAuth-Token' => $this->session->accessToken
+//            ]);
+//            $this->initSession($request);
+//            foreach ($request->getHeaders() as $name => $values) {
+//                $headers[$name] = implode(", ", $values);
+//            }
+//            $jsHeaders = json_encode($headers);
+//            $ajaxJsCode = <<<JS
+//                var postData = {};
+//                async function performAjaxRequest() {
+//                    try {
+//                      const response = await fetch('{$endpoint}', {
+//                        method: 'POST',
+//                        headers: $jsHeaders,
+//                        body: postData
+//                      });
+//
+//                      if (response.ok) {
+//                        return await response.text();
+//                      } else {
+//                        throw new Error('Network response was not ok.');
+//                      }
+//                    } catch (error) {
+//                      throw new Error(error.message);
+//                    }
+//                }
+//                // Execute the function and return the response
+//                performAjaxRequest();
+//            JS;
+//
+//            $responseHeaders = [];
+//            $statusCode = 200;
+//            $client->getCurrentPage()->getSession()->once(
+//                "method:Network.responseReceived",
+//                function ($params) use (& $statusCode, & $responseHeaders, $client) {
+//                    $statusCode = $params['response']['status'];
+//                    foreach ($params['response']['headers'] as $key => $value) {
+//                        $responseHeaders[$key] = explode(PHP_EOL, $value)[0];
+//                    }
+//                }
+//            );
+//
+//            // Evaluate the JavaScript code in the browser context
+//            $client->getCurrentPage()
+//                ->evaluate($ajaxJsCode)
+//                ->waitForResponse()
+//                ->getReturnValue();
+//            var_dump($responseHeaders);
+//
+//            print_r($client->getCurrentPage()->getAllCookies());
+//            die();
+//        } else {
 //        $this->client->getConfig('cookies')?->clear();
-        $sidRequest = new Request(
-            'POST',
-            $this->prependBase('/oauth2/bwc/login'),
-            ['Content-Type' => 'application/json'],
-            json_encode([])
-        );
-        $this->send($sidRequest);
-        if (!preg_match("/PHPSESSID=([^;]+);/", $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
-            throw new \RuntimeException("Session ID not found");
-        }
+            $sidRequest = new Request(
+                'POST',
+                $this->prependBase('/oauth2/bwc/login'),
+                ['Content-Type' => 'application/json'],
+                json_encode([])
+            );
+            $this->send($sidRequest);
+            if (!preg_match("/PHPSESSID=([^;]+);/", $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
+                throw new \RuntimeException("Session ID not found");
+            }
+//        }
         return $this;
     }
 
@@ -254,5 +366,10 @@ trait SugarCRMAware
             throw new \RuntimeException('Cannot determine SugarCRM version');
         }
         static::$sugarVersion = $data;
+    }
+
+    protected function isHeadlessClient(): bool
+    {
+        return in_array(HeadlessBrowser::class, (array)class_uses($this));
     }
 }

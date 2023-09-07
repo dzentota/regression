@@ -31,8 +31,8 @@ class Guzzle implements ClientInterface
         return $this->getHttpClient()->send($request, $options);
     }
 
-    public function getConfig($option = null)
+    public function __call(string $method, array $params = [])
     {
-        return $this->getHttpClient()->getConfig($option);
+        return $this->getHttpClient()->$method(...$params);
     }
 }

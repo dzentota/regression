@@ -12,10 +12,10 @@ use Regression\Severity;
 class DemoAssessment extends Assessment
 {
     use \Regression\Adapter\HeadlessBrowser;
-    
+
     public function getSeverity(): ?string
     {
-        return Severity::INFO;
+        return Severity::CRITICAL;
     }
 
     /**

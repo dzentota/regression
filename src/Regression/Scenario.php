@@ -33,7 +33,7 @@ abstract class Scenario
     /**
      * @var Session|null
      */
-    protected ?Session $session;
+    protected ?Session $session = null;
 
     /**
      * @var callable|null
@@ -80,6 +80,11 @@ abstract class Scenario
             $this->client = $this->initClient();
         }
         return $this->client;
+    }
+
+    public function getBaseUri(): string
+    {
+        return $this->baseUri;
     }
 
     protected function initClient(): ClientInterface
@@ -221,7 +226,7 @@ abstract class Scenario
         if (empty($this->getLastRequest())) {
             throw new \LogicException('Referer is available only after at least on request');
         }
-        return $this->getClient()->getConfig('base_uri') . '/' . $this->getLastRequest()->getRequestTarget();
+        return $this->baseUri . '/' . $this->getLastRequest()->getRequestTarget();
 
     }
 

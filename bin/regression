@@ -1,13 +1,11 @@
 #!/usr/bin/env php
 <?php
+error_reporting(E_ERROR & ~E_DEPRECATED);
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use GuzzleHttp\Psr7\Message;
-use HeadlessChromium\BrowserFactory;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Regression\Client\Chrome;
-use Regression\Client\Guzzle;
 use Regression\RegressionException;
 use Regression\Status;
 use Symfony\Component\Console\Input\InputArgument;

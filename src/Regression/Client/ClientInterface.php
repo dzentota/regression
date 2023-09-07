@@ -18,5 +18,4 @@ interface ClientInterface
      */
     public function send(RequestInterface $request, array $options = []): ResponseInterface;
 
-    public function getConfig($option = null);
 }

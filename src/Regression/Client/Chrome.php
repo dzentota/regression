@@ -4,8 +4,10 @@ namespace Regression\Client;
 
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
+use HeadlessChromium\Browser\ProcessAwareBrowser;
 use HeadlessChromium\BrowserFactory;
 use HeadlessChromium\Communication\Message;
+use HeadlessChromium\Page;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Psr7\UriResolver;
@@ -15,12 +17,15 @@ class Chrome implements ClientInterface
     private BrowserFactory $browserFactory;
     private array $options;
     private string $baseUri;
+    private ProcessAwareBrowser $browser;
+    private Page $currentPage;
 
     public function __construct(BrowserFactory $browserFactory, array $options, string $baseUri)
     {
         $this->browserFactory = $browserFactory;
         $this->options = $options;
         $this->baseUri = $baseUri;
+        $this->browser = $browserFactory->createBrowser($options);
     }
 
     /**
@@ -57,16 +62,20 @@ class Chrome implements ClientInterface
          * \file_put_contents($socketFile, $browser->getSocketUri(), LOCK_EX);
          * }
          */
-        $browser = $this->browserFactory->createBrowser(
-            array_replace_recursive($this->options, $options)
-        );
-        $page = $browser->createPage();
+        if (!empty($options)) {
+            $browser = $this->browserFactory->createBrowser(
+                array_replace_recursive($this->options, $options)
+            );
+        } else {
+            $browser = $this->browser;
+        }
+        $this->currentPage = $browser->createPage();
 
         $statusCode = 500;
 
         $responseHeaders = [];
 
-        $page->getSession()->once(
+        $this->currentPage->getSession()->once(
             "method:Network.responseReceived",
             function ($params) use (& $statusCode, & $responseHeaders) {
                 $statusCode = $params['response']['status'];
@@ -75,11 +84,11 @@ class Chrome implements ClientInterface
         );
 
         $content = '';
-        $page->getSession()->once(
+        $this->currentPage->getSession()->once(
             'method:Network.loadingFinished',
-            function (array $params) use ($page, &$content): void {
+            function (array $params) use ( &$content): void {
                 $request_id = $params["requestId"] ?? null;
-                $data = $page->getSession()->sendMessageSync(
+                $data = $this->currentPage->getSession()->sendMessageSync(
                     new Message('Network.getResponseBody',
                         ['requestId' => $request_id])
                 )->getData();
@@ -88,18 +97,64 @@ class Chrome implements ClientInterface
         $uri = UriResolver::resolve(Utils::uriFor($this->baseUri), $request->getUri());
 
         // Assume that ANY alert dialog is an XSS
-        $page->addPreScript(
+//        $page->getSession()->on('method:Page.javascriptDialogOpening', function (array $params) use ($page): void {
+//            echo "Dialog opened: " . $params["message"] . PHP_EOL;
+//            $page->getSession()->sendMessageSync(new Message('Page.handleJavaScriptDialog', ['accept' => true]));
+//        });
+        $this->currentPage->addPreScript(
             <<<'JS'
             window.alert=function(){
                 document.documentElement.innerHTML = 'XSS!!! Detected';
             }
             JS
         );
+        $headers = [];
+        foreach ($request->getHeaders() as $name => $values) {
+            $headers[$name] = implode(", ", $values);
+        }
+        if (strtoupper($request->getMethod()) !== 'GET') {
+            $jsHeaders = json_encode($headers, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $body = json_encode((string)$request->getBody(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $ajaxJsCode = <<<JS
+                var postData = $body;
+                async function performAjaxRequest() {
+                    try {
+                      const response = await fetch('{$uri->__toString()}', {
+                        method: 'POST',
+                        headers: $jsHeaders,
+                        body: postData
+                      });
+                
+                      if (response.ok) {
+                        return await response.text();
+                      } else {
+                        throw new Error('Network response was not ok.');
+                      }
+                    } catch (error) {
+                      throw new Error(error.message);
+                    }
+                }
+                // Execute the function and return the response
+                performAjaxRequest();
+            JS;
+            // Evaluate the JavaScript code in the browser context
+            $content = $this->currentPage
+                ->evaluate($ajaxJsCode)
+                ->waitForResponse()
+                ->getReturnValue();
+            return new Response($statusCode, $responseHeaders, $content);
+        } else {
+            if (!empty($headers)) {
+                $this->currentPage->setExtraHTTPHeaders($headers);
+            }
+            $this->currentPage
+                ->navigate($uri)
+                ->waitForNavigation();
+            return new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
+                $this->currentPage->getHtml() : $content);
+        }
 
-        $page->navigate($uri)
-            ->waitForNavigation();
-        return new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
-            $page->getHtml() : $content);
+
     }
 
     private function isHtmlPage(array $headers): bool
@@ -120,9 +175,13 @@ class Chrome implements ClientInterface
         return $headers;
     }
 
-    public function getConfig($option = null)
+    public function __call(string $method, array $params = [])
     {
-        $options = $this->browserFactory->getOptions();
-        return $option === null ? $options : $options[$option];
+        return $this->browserFactory->$method(...$params);
+    }
+
+    public function getCurrentPage(): Page
+    {
+        return $this->currentPage;
     }
 }

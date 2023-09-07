@@ -7,7 +7,7 @@ use Psr\Http\Message\RequestInterface;
 
 class SugarSession implements Session
 {
-    private string $accessToken;
+    public readonly string $accessToken;
 
     public function __construct(string $token)
     {
