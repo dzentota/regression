@@ -9,7 +9,7 @@ use Regression\Severity;
 /**
  * Expected to be run with a headless Chrome
  */
-class DemoAssessment extends Assessment
+class Demo2Assessment extends Assessment
 {
     use \Regression\Adapter\HeadlessBrowser;
     

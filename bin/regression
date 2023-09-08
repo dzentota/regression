@@ -1,13 +1,11 @@
 #!/usr/bin/env php
 <?php
+error_reporting(E_ALL & ~E_DEPRECATED);
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use GuzzleHttp\Psr7\Message;
-use HeadlessChromium\BrowserFactory;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Regression\Client\Chrome;
-use Regression\Client\Guzzle;
 use Regression\RegressionException;
 use Regression\Status;
 use Symfony\Component\Console\Input\InputArgument;
@@ -19,16 +17,27 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.1.12') // Optional
+    ->setVersion('0.1.13') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
+    ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
+    ->addOption('test_files', 'f', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Path to the file with the test (separate multiple paths with a space)')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
-        $customRecursiveIterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input->getOption('tests_dir')));
-        $customRegexIterator = new RegexIterator($customRecursiveIterator, '/^.+(Regression|Assessment)\.php$/',
-            RecursiveRegexIterator::GET_MATCH);
-
+        $type = $input->getOption('type');
+        $testFiles = $input->getOption('test_files');
+        if (!empty($testFiles)) {
+            $iterator = $testFiles;
+        } else {
+            if ($type !== null && !in_array(strtolower($type), ['regression', 'assessment'])) {
+                throw new InvalidArgumentException("'type' can be only 'regression' or 'assessment', '{$type}' given");
+            } else {
+                $rx = $type === null ? '/^.+(Regression|Assessment)\.php$/' : "/^.+{$type}\.php$/i";
+            }
+            $customRecursiveIterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input->getOption('tests_dir')));
+            $iterator = new RegexIterator($customRecursiveIterator, $rx);
+        }
         $io = new SymfonyStyle($input, $output);
         $io->title('Running Regression Tests...');
 
@@ -37,9 +46,12 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $success = 0;
         $regressions = [];
         $vulnerabilities = [];
-        $io->progressStart(iterator_count($customRegexIterator));
-        foreach ($customRegexIterator as $match) {
-            $classFile = $match[0];
+        $io->progressStart(iterator_count($iterator));
+        foreach ($iterator as $classFile) {
+            if (!file_exists($classFile)) {
+                $io->error("$classFile doesn't exist. Skipped");
+                continue;
+            }
             require_once $classFile;
             $class = basename($classFile, '.php');
             /**
@@ -85,6 +97,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                 $io->progressAdvance();
             }
         }
+
         $io->progressFinish();
         $io->horizontalTable(['Total', 'Success', 'Issues'], [
             [$testsCount, $success, $failed]
