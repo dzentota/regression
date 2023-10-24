@@ -29,7 +29,7 @@ abstract class Regression extends Scenario
     {
         $content = (string)$this->lastResponse->getBody();
         if (false === strpos($content, $substring)) {
-            $this->throwException($errorMessage ?? "The response does contain substring '$substring'");
+            $this->throwException($errorMessage ?? "The response does NOT contain substring '$substring'");
         }
         $this->status = Status::NO_ISSUE;
         return $this;
@@ -44,7 +44,7 @@ abstract class Regression extends Scenario
     public function expectRegexp(string $regexp, ?string $errorMessage = null): self
     {
         if (!preg_match($regexp, (string)$this->lastResponse->getBody())) {
-            $this->throwException($errorMessage ?? "The response does match regexp '$regexp'");
+            $this->throwException($errorMessage ?? "The response does NOT match regexp '$regexp'");
         }
         $this->status = Status::NO_ISSUE;
         return $this;
@@ -59,7 +59,7 @@ abstract class Regression extends Scenario
     public function expect(callable $callback, ?string $errorMessage = null): self
     {
         if (false === $callback($this->lastResponse)) {
-            $this->throwException($errorMessage ?? 'The response does not fit expectations');
+            $this->throwException($errorMessage ?? 'The response does NOT fit expectations');
         }
         $this->status = Status::NO_ISSUE;
         return $this;
@@ -95,7 +95,7 @@ abstract class Regression extends Scenario
         ?string $errorMessage = null
     ): self {
         if (!preg_match($regexp, (string)$this->lastResponse->getBody(), $m)) {
-            $this->throwException($errorMessage ?? "The response does match regexp '$regexp'");
+            $this->throwException($errorMessage ?? "The response does NOT match regexp '$regexp'");
         }
         $this->status = Status::NO_ISSUE;
         $this->vars[$variableName] = $m[$group];

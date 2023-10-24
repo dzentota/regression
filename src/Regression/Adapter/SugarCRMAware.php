@@ -47,6 +47,31 @@ trait SugarCRMAware
         return $this;
     }
 
+    public function portalLogin(string $username, string $password): self
+    {
+        $payload = json_encode([
+            'username' => $username,
+            'password' => $password,
+            'grant_type' => 'password',
+            'client_id' => 'support_portal',
+            'platform' => 'portal',
+            'client_secret' => ''
+        ]);
+
+        $tokenRequest = new Request(
+            'POST',
+            $this->prependBase("/oauth2/token?platform=portal"),
+            ['Content-Type' => 'application/json'],
+            $payload
+        );
+        $this->send($tokenRequest);
+        if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
+            throw new \RuntimeException("Login failed");
+        }
+        $this->session = new SugarSession($token);
+        return $this;
+    }
+
     /**
      * @param string $pathToArchive
      * @return $this

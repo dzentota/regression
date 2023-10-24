@@ -6,7 +6,6 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 use GuzzleHttp\Psr7\Message;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Regression\RegressionException;
 use Regression\Status;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -88,12 +87,12 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                 } else {
                     $success++;
                 }
-            } catch (RegressionException $exception) {
+            } catch (Throwable $exception) {
                 $regressions[] = $scenario->getSeverity()?
                     sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $exception->getMessage()):
                     sprintf('%s: "%s"', $scenario->getDescription(), $exception->getMessage());
                 $failed++;
-            }  finally {
+            } finally {
                 $io->progressAdvance();
             }
         }
