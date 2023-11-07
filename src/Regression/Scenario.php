@@ -36,14 +36,14 @@ abstract class Scenario
     protected ?Session $session;
 
     /**
-     * @var callable|null
+     * @var callable[]
      */
-    protected $beforeRequest;
+    protected array $beforeRequest = [];
 
     /**
-     * @var callable|null
+     * @var callable[]
      */
-    protected $afterResponse;
+    protected array $afterResponse = [];
 
     /**
      * @var array
@@ -97,9 +97,11 @@ abstract class Scenario
      * @param callable $callback
      * @return $this
      */
-    public function onRequest(callable $callback): self
+    public function onRequest(callable ...$callback): self
     {
-        $this->beforeRequest = $callback;
+        foreach ($callback as $c) {
+            $this->beforeRequest[] = $c;
+        }
         return $this;
     }
 
@@ -107,9 +109,11 @@ abstract class Scenario
      * @param callable $callback
      * @return $this
      */
-    public function onResponse(callable $callback): self
+    public function onResponse(callable ...$callback): self
     {
-        $this->afterResponse = $callback;
+        foreach ($callback as $c) {
+            $this->afterResponse[] = $c;
+        }
         return $this;
     }
 
@@ -168,15 +172,17 @@ abstract class Scenario
     public function send(RequestInterface $request, array $options = []): self
     {
         $request = $this->initSession($request);
-        if (isset($this->beforeRequest)) {
-            $beforeRequest = $this->beforeRequest;
-            $beforeRequest($request, $options);
+        if (!empty($this->beforeRequest)) {
+            foreach ($this->beforeRequest as $beforeRequest) {
+                $beforeRequest($request, $options);
+            }
         }
         $this->lastRequest = $request;
         $this->lastResponse = $this->getClient()->send($request, $options);
-        if (isset($this->afterResponse)) {
-            $afterResponse = $this->afterResponse;
-            $afterResponse($this->lastResponse);
+        if (!empty($this->afterResponse)) {
+            foreach ($this->afterResponse as $afterResponse) {
+                $afterResponse($this->lastResponse);
+            }
         }
         return $this;
     }

@@ -22,6 +22,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
     ->addOption('test_files', 'f', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Path to the file with the test (separate multiple paths with a space)')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
+    ->addOption('trace', null, InputOption::VALUE_NONE, 'Add X-Test-Name Header with the Scenario class name as a value for each request')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
         $type = $input->getOption('type');
@@ -57,6 +58,12 @@ use Symfony\Component\Console\Style\SymfonyStyle;
              * @var \Regression\Scenario $scenario
              */
             $scenario = new $class($input->getArgument('base_uri'));
+            if ($input->getOption('trace')) {
+                $scenario->onRequest(function (RequestInterface &$request) use ($scenario) {
+                    $request = $request->withHeader('X-Test-Name', get_class($scenario));
+                });
+            }
+
             if ($input->getOption('debug')) {
                 $scenario->onRequest(function (RequestInterface $request, array $options = []) use ($io) {
                     $io->newLine(2);
