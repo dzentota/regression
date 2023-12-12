@@ -6,6 +6,9 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 use GuzzleHttp\Psr7\Message;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Regression\Helpers\Output\QueueOutput;
+use Regression\Helpers\Output\RequestOutputItem;
+use Regression\Helpers\Output\ResponseOutputItem;
 use Regression\Config;
 use Regression\Status;
 use Symfony\Component\Console\Input\InputArgument;
@@ -23,8 +26,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
     ->addOption('test_files', 'f', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Path to the file with the test (separate multiple paths with a space)')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
+    ->addOption('output-failed', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
     ->addOption('trace', null, InputOption::VALUE_NONE, 'Add X-Test-Name Header with the Scenario class name as a value for each request')
     ->addOption('credentials', 'c', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Credentials. Colon-separated username+password')
+    ->addOption('licenses', null, InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
         $type = $input->getOption('type');
@@ -40,14 +45,18 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $customRecursiveIterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input->getOption('tests_dir')));
             $iterator = new RegexIterator($customRecursiveIterator, $rx);
         }
-        $io = new SymfonyStyle($input, $output);
-        $io->title('Running Regression Tests...');
 
+        $queueOutput = new QueueOutput();
         $testsCount = 0;
         $failed = 0;
         $success = 0;
+        $skipped = 0;
         $regressions = [];
         $vulnerabilities = [];
+
+        $io = new SymfonyStyle($input, $output);
+
+        $io->title('Running Regression Tests...');
         $io->progressStart(iterator_count($iterator));
         foreach ($iterator as $classFile) {
             if (!file_exists($classFile)) {
@@ -70,38 +79,44 @@ use Symfony\Component\Console\Style\SymfonyStyle;
              * @var \Regression\Scenario $scenario
              */
             $scenario = new $class($config);
+            if (!$scenario->shouldBeExecuted()) {
+                $io->newLine(2);
+                $io->title($scenario->getDescription() . ': SKIPPED');
+                $skipped++;
+                $testsCount++;
+                continue;
+            }
             if ($input->getOption('trace')) {
                 $scenario->onRequest(function (RequestInterface &$request) use ($scenario) {
                     $request = $request->withHeader('X-Test-Name', get_class($scenario));
                 });
             }
 
-            if ($input->getOption('debug')) {
-                $scenario->onRequest(function (RequestInterface $request, array $options = []) use ($io) {
-                    $io->newLine(2);
-                    $io->title('Request to ' . $request->getUri());
-                    $io->section(
-                        Message::toString($request)
-                    );
-                    if (count($options)) {
-                        $io->section(var_export($options, true));
-                    }
-                })->onResponse(function (ResponseInterface $response) use ($io) {
-                        $io->title('Response');
-                        $io->section(
-                            Message::toString($response)
-                        );
+            $isDebug = $input->getOption('debug');
+            $isOutputFailed = !$isDebug && $input->getOption('output-failed');
+
+            if ($isDebug || $isOutputFailed) {
+                $scenario
+                    ->onRequest(function (RequestInterface $request, array $options = []) use ($queueOutput) {
+                        $queueOutput->push(new RequestOutputItem($request, $options));
+                    })
+                    ->onResponse(function (ResponseInterface $response) use ($queueOutput) {
+                        $queueOutput->push(new ResponseOutputItem($response));
                     });
             }
+
+            $scenarioFailed = false;
             $testsCount++;
             try {
                 $scenario->run();
                 if ($scenario->getStatus() === Status::UNKNOWN) {
+                    $scenarioFailed = true;
                     $io->error("Risky. No expectations or assumptions made: {$scenario->getDescription()}");
                 } elseif ($scenario->getStatus() === Status::HAS_ISSUE) {
                     $vulnerabilities[] = $scenario->getSeverity()?
                         sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $scenario->getConclusion()):
                         sprintf('%s: "%s"', $scenario->getDescription(), $scenario->getConclusion());
+                    $scenarioFailed = true;
                     $failed++;
                 } else {
                     $success++;
@@ -110,15 +125,21 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                 $regressions[] = $scenario->getSeverity()?
                     sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $exception->getMessage()):
                     sprintf('%s: "%s"', $scenario->getDescription(), $exception->getMessage());
+                $scenarioFailed = true;
                 $failed++;
             } finally {
+                if ($isDebug || ($isOutputFailed && $scenarioFailed)) {
+                    $queueOutput->flushToOutput($io);
+                } else {
+                    $queueOutput->clear();
+                }
                 $io->progressAdvance();
             }
         }
 
         $io->progressFinish();
-        $io->horizontalTable(['Total', 'Success', 'Issues'], [
-            [$testsCount, $success, $failed]
+        $io->horizontalTable(['Total', 'Success', 'Issues', 'Skipped'], [
+            [$testsCount, $success, $failed, $skipped]
         ]);
         if ($failed === 0) {
             $io->success('No issues found');
