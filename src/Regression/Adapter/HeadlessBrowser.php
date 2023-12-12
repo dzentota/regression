@@ -20,6 +20,6 @@ trait HeadlessBrowser
 
         // Create a browser instance
         $browserFactory = new BrowserFactory();
-        return new Chrome($browserFactory, $options, $this->baseUri);
+        return new Chrome($browserFactory, $options, $this->config->getBaseUri());
     }
 }

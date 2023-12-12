@@ -6,6 +6,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 use GuzzleHttp\Psr7\Message;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Regression\Config;
 use Regression\Status;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -16,13 +17,14 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.1.13') // Optional
+    ->setVersion('0.2') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
     ->addOption('test_files', 'f', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Path to the file with the test (separate multiple paths with a space)')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
     ->addOption('trace', null, InputOption::VALUE_NONE, 'Add X-Test-Name Header with the Scenario class name as a value for each request')
+    ->addOption('credentials', 'c', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Credentials. Colon-separated username+password')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
         $type = $input->getOption('type');
@@ -54,10 +56,20 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             }
             require_once $classFile;
             $class = basename($classFile, '.php');
+            $configParams = ['baseUri' => $input->getArgument('base_uri')];
+            if ($credentials = $input->getOption('credentials')) {
+                $loginPasswordPairs = [];
+                foreach ($credentials as $credential) {
+                    [$login, $password] = explode(':', $credential, 2);
+                    $loginPasswordPairs[$login] = $password;
+                }
+                $configParams['credentials'] = $loginPasswordPairs;
+            }
+            $config = Config::create($configParams);
             /**
              * @var \Regression\Scenario $scenario
              */
-            $scenario = new $class($input->getArgument('base_uri'));
+            $scenario = new $class($config);
             if ($input->getOption('trace')) {
                 $scenario->onRequest(function (RequestInterface &$request) use ($scenario) {
                     $request = $request->withHeader('X-Test-Name', get_class($scenario));

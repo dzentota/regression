@@ -54,14 +54,11 @@ abstract class Scenario
 
     protected ?string $conclusion;
 
-    protected string $baseUri;
-
     /**
      * Scenario constructor.
      */
-    public function __construct(string $baseUri)
+    public function __construct(protected Config $config)
     {
-        $this->baseUri = $baseUri;
     }
 
     /**
@@ -85,7 +82,7 @@ abstract class Scenario
     protected function initClient(): ClientInterface
     {
         $guzzle = new Client([
-            'base_uri' => $this->baseUri,
+            'base_uri' => $this->config->getBaseUri(),
             'http_errors' => false,
             'verify' => false,
             'cookies' => true
