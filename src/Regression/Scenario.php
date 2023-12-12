@@ -262,4 +262,9 @@ abstract class Scenario
     {
         return $this->conclusion;
     }
+
+    public function shouldBeExecuted(): bool
+    {
+        return true;
+    }
 }

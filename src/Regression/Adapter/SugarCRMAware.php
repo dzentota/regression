@@ -19,6 +19,8 @@ trait SugarCRMAware
     protected static string $serverUrl;
     protected static array $sugarVersion;
 
+    protected array $acceptedVersions = [];
+
     public function __construct(Config $config)
     {
         parent::__construct($config);
@@ -117,6 +119,37 @@ trait SugarCRMAware
             }
         }
         return $this;
+    }
+
+    public function updateLicense(string $license): self
+    {
+        return $this
+            ->submitForm(
+                'index.php?action=LicenseSettings&module=Administration',
+                [
+                    'module' => 'Administration',
+                    'action' => 'Save',
+                    'return_module' => 'Administration',
+                    'return_action' => 'LicenseSettings',
+                    'button' => '++Save++',
+                    'license_key' => $license,
+                ],
+                'index.php?module=Administration&action=LicenseSettings&bwcFrame=1',
+                'GET',
+            )
+            ->submitForm(
+                'index.php?action=LicenseSettings&module=Administration',
+                [
+                    'module' => 'Administration',
+                    'action' => 'Save',
+                    'return_module' => 'Administration',
+                    'return_action' => 'LicenseSettings',
+                    'button' => '++Re-validate++',
+                    'license_key' => $license,
+                ],
+                'index.php?module=Administration&action=LicenseSettings&bwcFrame=1',
+                'GET',
+            );
     }
 
     public function portalLogin(string $username, string $password): self
@@ -351,5 +384,10 @@ trait SugarCRMAware
             throw new \RuntimeException('Cannot determine SugarCRM version');
         }
         static::$sugarVersion = $data;
+    }
+
+    public function shouldBeExecuted(): bool
+    {
+        return empty($this->acceptedVersions) || in_array(self::$sugarVersion, $this->acceptedVersions, true);
     }
 }
