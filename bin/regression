@@ -26,16 +26,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
     ->addOption('test_files', 'f', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Path to the file with the test (separate multiple paths with a space)')
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
-    ->addOption('output-failed', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
     ->addOption('trace', null, InputOption::VALUE_NONE, 'Add X-Test-Name Header with the Scenario class name as a value for each request')
     ->addOption('credentials', 'c', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Credentials. Colon-separated username+password')
-    ->addOption('licenses', null, InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
+    ->addOption('failed_scenarios', 'fsc', InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
+    ->addOption('failed_steps', 'fst', InputOption::VALUE_NONE, 'Show last request/response for failed tests')
+    ->addOption('licenses', 'l', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
         $type = $input->getOption('type');
         $testFiles = $input->getOption('test_files');
         if (!empty($testFiles)) {
-            $iterator = $testFiles;
+            $iterator = new ArrayObject($testFiles);
         } else {
             if ($type !== null && !in_array(strtolower($type), ['regression', 'assessment'])) {
                 throw new InvalidArgumentException("'type' can be only 'regression' or 'assessment', '{$type}' given");
@@ -93,11 +94,16 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             }
 
             $isDebug = $input->getOption('debug');
-            $isOutputFailed = !$isDebug && $input->getOption('output-failed');
+            $isFailedScenarios = $input->getOption('failed_scenarios');
+            $isFailedSteps = $input->getOption('failed_steps');
 
-            if ($isDebug || $isOutputFailed) {
+            if ($isDebug || $isFailedScenarios || $isFailedSteps) {
                 $scenario
-                    ->onRequest(function (RequestInterface $request, array $options = []) use ($queueOutput) {
+                    ->onRequest(function (RequestInterface $request, array $options = []) use ($queueOutput, $isFailedSteps) {
+                        if ($isFailedSteps) {
+                            $queueOutput->clear();
+                        }
+
                         $queueOutput->push(new RequestOutputItem($request, $options));
                     })
                     ->onResponse(function (ResponseInterface $response) use ($queueOutput) {
@@ -128,7 +134,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                 $scenarioFailed = true;
                 $failed++;
             } finally {
-                if ($isDebug || ($isOutputFailed && $scenarioFailed)) {
+                if ($isDebug || (($isFailedScenarios || $isFailedSteps) && $scenarioFailed)) {
+                    $io->newLine(2);
+                    $io->title($scenario->getDescription());
+
                     $queueOutput->flushToOutput($io);
                 } else {
                     $queueOutput->clear();

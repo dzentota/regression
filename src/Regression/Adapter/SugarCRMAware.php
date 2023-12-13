@@ -19,7 +19,8 @@ trait SugarCRMAware
     protected static string $serverUrl;
     protected static array $sugarVersion;
 
-    protected array $acceptedVersions = [];
+    protected ?string $minVersion = null;
+    protected ?string $maxVersion = null;
 
     public function __construct(Config $config)
     {
@@ -388,6 +389,7 @@ trait SugarCRMAware
 
     public function shouldBeExecuted(): bool
     {
-        return empty($this->acceptedVersions) || in_array(self::$sugarVersion, $this->acceptedVersions, true);
+        return (is_null($this->minVersion) || self::$sugarVersion['sugar_version'] >= $this->minVersion)
+            && (is_null($this->maxVersion) || self::$sugarVersion['sugar_version'] <= $this->maxVersion);
     }
 }
