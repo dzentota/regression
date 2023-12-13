@@ -29,7 +29,11 @@ final class Config
 
     public function getBaseUri(): string
     {
-        return $this->data['baseUri'];
+        if (str_ends_with($this->data['baseUri'], '/')) {
+            return $this->data['baseUri'];
+        }
+
+        return $this->data['baseUri'] . '/';
     }
 
     public function getUserPassword(string $username, $default = null): ?string
