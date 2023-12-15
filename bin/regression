@@ -28,8 +28,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('debug', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses')
     ->addOption('trace', null, InputOption::VALUE_NONE, 'Add X-Test-Name Header with the Scenario class name as a value for each request')
     ->addOption('credentials', 'c', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Credentials. Colon-separated username+password')
-    ->addOption('failed_scenarios', 'fsc', InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
-    ->addOption('failed_steps', 'fst', InputOption::VALUE_NONE, 'Show last request/response for failed tests')
+    ->addOption('failed_scenarios', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
+    ->addOption('failed_steps', null, InputOption::VALUE_NONE, 'Show last request/response for failed tests')
     ->addOption('licenses', 'l', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
 
@@ -47,122 +47,132 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $iterator = new RegexIterator($customRecursiveIterator, $rx);
         }
 
-        $queueOutput = new QueueOutput();
-        $testsCount = 0;
-        $failed = 0;
-        $success = 0;
-        $skipped = 0;
-        $regressions = [];
-        $vulnerabilities = [];
+        $licenses = $input->getOption('licenses') ?: [Config::DEFAULT_LICENSE];
 
-        $io = new SymfonyStyle($input, $output);
+        foreach ($licenses as $license) {
+            $queueOutput = new QueueOutput();
+            $testsCount = 0;
+            $failed = 0;
+            $success = 0;
+            $skipped = 0;
+            $regressions = [];
+            $vulnerabilities = [];
 
-        $io->title('Running Regression Tests...');
-        $io->progressStart(iterator_count($iterator));
-        foreach ($iterator as $classFile) {
-            if (!file_exists($classFile)) {
-                $io->error("$classFile doesn't exist. Skipped");
-                continue;
-            }
-            require_once $classFile;
-            $class = basename($classFile, '.php');
-            $configParams = ['baseUri' => $input->getArgument('base_uri')];
-            if ($credentials = $input->getOption('credentials')) {
-                $loginPasswordPairs = [];
-                foreach ($credentials as $credential) {
-                    [$login, $password] = explode(':', $credential, 2);
-                    $loginPasswordPairs[$login] = $password;
+            $io = new SymfonyStyle($input, $output);
+            $io->title('Running Regression Tests for license ' . $license . '...');
+            $io->progressStart(iterator_count($iterator));
+
+            foreach ($iterator as $classFile) {
+                if (!file_exists($classFile)) {
+                    $io->error("$classFile doesn't exist. Skipped");
+                    continue;
                 }
-                $configParams['credentials'] = $loginPasswordPairs;
-            }
-            $config = Config::create($configParams);
-            /**
-             * @var \Regression\Scenario $scenario
-             */
-            $scenario = new $class($config);
-            if (!$scenario->shouldBeExecuted()) {
-                $io->newLine(2);
-                $io->title($scenario->getDescription() . ': SKIPPED');
-                $skipped++;
-                $testsCount++;
-                continue;
-            }
-            if ($input->getOption('trace')) {
-                $scenario->onRequest(function (RequestInterface &$request) use ($scenario) {
-                    $request = $request->withHeader('X-Test-Name', get_class($scenario));
-                });
-            }
-
-            $isDebug = $input->getOption('debug');
-            $isFailedScenarios = $input->getOption('failed_scenarios');
-            $isFailedSteps = $input->getOption('failed_steps');
-
-            if ($isDebug || $isFailedScenarios || $isFailedSteps) {
-                $scenario
-                    ->onRequest(function (RequestInterface $request, array $options = []) use ($queueOutput, $isFailedSteps) {
-                        if ($isFailedSteps) {
-                            $queueOutput->clear();
-                        }
-
-                        $queueOutput->push(new RequestOutputItem($request, $options));
-                    })
-                    ->onResponse(function (ResponseInterface $response) use ($queueOutput) {
-                        $queueOutput->push(new ResponseOutputItem($response));
+                require_once $classFile;
+                $class = basename($classFile, '.php');
+                $configParams = [
+                    'baseUri' => $input->getArgument('base_uri'),
+                    'license' => $license,
+                ];
+                if ($credentials = $input->getOption('credentials')) {
+                    $loginPasswordPairs = [];
+                    foreach ($credentials as $credential) {
+                        [$login, $password] = explode(':', $credential, 2);
+                        $loginPasswordPairs[$login] = $password;
+                    }
+                    $configParams['credentials'] = $loginPasswordPairs;
+                }
+                $config = Config::create($configParams);
+                /**
+                 * @var \Regression\Scenario $scenario
+                 */
+                $scenario = new $class($config);
+                if (!$scenario->shouldBeExecuted()) {
+                    $io->newLine(2);
+                    $io->title($scenario->getDescription() . ': SKIPPED');
+                    $skipped++;
+                    $testsCount++;
+                    continue;
+                }
+                if ($input->getOption('trace')) {
+                    $scenario->onRequest(function (RequestInterface &$request) use ($scenario) {
+                        $request = $request->withHeader('X-Test-Name', get_class($scenario));
                     });
-            }
+                }
 
-            $scenarioFailed = false;
-            $testsCount++;
-            try {
-                $scenario->run();
-                if ($scenario->getStatus() === Status::UNKNOWN) {
-                    $scenarioFailed = true;
-                    $io->error("Risky. No expectations or assumptions made: {$scenario->getDescription()}");
-                } elseif ($scenario->getStatus() === Status::HAS_ISSUE) {
-                    $vulnerabilities[] = $scenario->getSeverity()?
-                        sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $scenario->getConclusion()):
-                        sprintf('%s: "%s"', $scenario->getDescription(), $scenario->getConclusion());
+                $isDebug = $input->getOption('debug');
+                $isFailedScenarios = $input->getOption('failed_scenarios');
+                $isFailedSteps = $input->getOption('failed_steps');
+
+                if ($isDebug || $isFailedScenarios || $isFailedSteps) {
+                    $scenario
+                        ->onRequest(function (RequestInterface $request, array $options = []) use ($queueOutput, $isFailedSteps) {
+                            if ($isFailedSteps) {
+                                $queueOutput->clear();
+                            }
+
+                            $queueOutput->push(new RequestOutputItem($request, $options));
+                        })
+                        ->onResponse(function (ResponseInterface $response) use ($queueOutput) {
+                            $queueOutput->push(new ResponseOutputItem($response));
+                        });
+                }
+
+                $scenarioFailed = false;
+                $testsCount++;
+                try {
+                    $scenario
+                        ->applyLicense()
+                        ->run();
+                    if ($scenario->getStatus() === Status::UNKNOWN) {
+                        $scenarioFailed = true;
+                        $io->error("Risky. No expectations or assumptions made: {$scenario->getDescription()}");
+                    } elseif ($scenario->getStatus() === Status::HAS_ISSUE) {
+                        $vulnerabilities[] = $scenario->getSeverity() ?
+                            sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $scenario->getConclusion()) :
+                            sprintf('%s: "%s"', $scenario->getDescription(), $scenario->getConclusion());
+                        $scenarioFailed = true;
+                        $failed++;
+                    } else {
+                        $success++;
+                    }
+                } catch (Throwable $exception) {
+                    $regressions[] = $scenario->getSeverity() ?
+                        sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $exception->getMessage()) :
+                        sprintf('%s: "%s"', $scenario->getDescription(), $exception->getMessage());
                     $scenarioFailed = true;
                     $failed++;
-                } else {
-                    $success++;
-                }
-            } catch (Throwable $exception) {
-                $regressions[] = $scenario->getSeverity()?
-                    sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $exception->getMessage()):
-                    sprintf('%s: "%s"', $scenario->getDescription(), $exception->getMessage());
-                $scenarioFailed = true;
-                $failed++;
-            } finally {
-                if ($isDebug || (($isFailedScenarios || $isFailedSteps) && $scenarioFailed)) {
-                    $io->newLine(2);
-                    $io->title($scenario->getDescription());
+                } finally {
+                    if ($isDebug || (($isFailedScenarios || $isFailedSteps) && $scenarioFailed)) {
+                        $io->newLine(2);
+                        $io->title($scenario->getDescription());
 
-                    $queueOutput->flushToOutput($io);
-                } else {
-                    $queueOutput->clear();
+                        $queueOutput->flushToOutput($io);
+                    } else {
+                        $queueOutput->clear();
+                    }
+                    $io->progressAdvance();
                 }
-                $io->progressAdvance();
+            }
+
+            $io->progressFinish();
+            $io->horizontalTable(['Total', 'Success', 'Issues', 'Skipped'], [
+                [$testsCount, $success, $failed, $skipped]
+            ]);
+            if ($failed === 0) {
+                $io->success('No issues found');
+                return 0;
+            }
+
+            if (count($regressions)) {
+                $io->error('Regression!');
+                $io->listing($regressions);
+            }
+            if (count($vulnerabilities)) {
+                $io->error('Possible vulnerabilities');
+                $io->listing($vulnerabilities);
             }
         }
 
-        $io->progressFinish();
-        $io->horizontalTable(['Total', 'Success', 'Issues', 'Skipped'], [
-            [$testsCount, $success, $failed, $skipped]
-        ]);
-        if ($failed === 0) {
-            $io->success('No issues found');
-            return 0;
-        }
-
-        if (count($regressions)) {
-            $io->error('Regression!');
-            $io->listing($regressions);
-        }
-        if (count($vulnerabilities)) {
-            $io->error('Possible vulnerabilities');
-            $io->listing($vulnerabilities);
-        }
         return 1;
     })
     ->run();
