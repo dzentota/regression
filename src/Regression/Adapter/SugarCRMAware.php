@@ -122,35 +122,52 @@ trait SugarCRMAware
         return $this;
     }
 
-    public function updateLicense(string $license): self
+    public function logout(): self
     {
-        return $this
-            ->submitForm(
-                'index.php?action=LicenseSettings&module=Administration',
-                [
-                    'module' => 'Administration',
-                    'action' => 'Save',
-                    'return_module' => 'Administration',
-                    'return_action' => 'LicenseSettings',
-                    'button' => '++Save++',
-                    'license_key' => $license,
-                ],
-                'index.php?module=Administration&action=LicenseSettings&bwcFrame=1',
-                'GET',
-            )
-            ->submitForm(
-                'index.php?action=LicenseSettings&module=Administration',
-                [
-                    'module' => 'Administration',
-                    'action' => 'Save',
-                    'return_module' => 'Administration',
-                    'return_action' => 'LicenseSettings',
-                    'button' => '++Re-validate++',
-                    'license_key' => $license,
-                ],
-                'index.php?module=Administration&action=LicenseSettings&bwcFrame=1',
-                'GET',
-            );
+        $this->apiCall('/oauth2/bwc/logout', 'POST');
+
+        return parent::logout();
+    }
+
+    public function applyLicense(): self
+    {
+        $license = $this->config->getLicense();
+
+        if ($license !== Config::DEFAULT_LICENSE) {
+            return $this
+                ->loginAs('admin')
+                ->bwcLogin()
+                ->submitForm(
+                    'index.php?module=Administration&action=LicenseSettings',
+                    [],
+                    'index.php?module=Administration&action=LicenseSettings'
+                )
+                ->submitForm(
+                    'index.php',
+                    [
+                        'module' => 'Administration',
+                        'action' => 'Save',
+                        'return_module' => 'Administration',
+                        'return_action' => 'LicenseSettings',
+                        'button' => '++Save++',
+                        'license_key' => $license,
+                    ],
+                )
+                ->submitForm(
+                    'index.php',
+                    [
+                        'module' => 'Administration',
+                        'action' => 'Save',
+                        'return_module' => 'Administration',
+                        'return_action' => 'LicenseSettings',
+                        'button' => '++Re-validate++',
+                        'license_key' => $license,
+                    ],
+                )
+                ->logout();
+        }
+
+        return $this;
     }
 
     public function portalLogin(string $username, string $password): self

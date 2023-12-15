@@ -5,6 +5,8 @@ namespace Regression;
 
 final class Config
 {
+    public const DEFAULT_LICENSE = 'DEFAULT_LICENSE';
+
     private array $data;
 
     public static function create(array $array): self
@@ -34,6 +36,11 @@ final class Config
         }
 
         return $this->data['baseUri'] . '/';
+    }
+
+    public function getLicense(): string
+    {
+        return $this->data['license'];
     }
 
     public function getUserPassword(string $username, $default = null): ?string

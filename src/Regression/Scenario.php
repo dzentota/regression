@@ -267,4 +267,9 @@ abstract class Scenario
     {
         return true;
     }
+
+    public function applyLicense(): self
+    {
+        return $this;
+    }
 }
