@@ -3,10 +3,14 @@ declare(strict_types=1);
 
 namespace Regression\Adapter;
 
+use GuzzleHttp\Psr7\Header;
 use GuzzleHttp\Psr7\MultipartStream;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Utils;
+use GuzzleHttp\RequestOptions;
+use GuzzleHttp\TransferStats;
 use Psr\Http\Message\ResponseInterface;
+use Regression\Config;
 use Regression\RegressionException;
 use Regression\SugarSession;
 
@@ -15,15 +19,42 @@ trait SugarCRMAware
     protected static string $serverUrl;
     protected static array $sugarVersion;
 
-    public function __construct(string $baseUri)
+    protected ?string $minVersion = null;
+    protected ?string $maxVersion = null;
+
+    public function __construct(Config $config)
     {
-        parent::__construct($baseUri);
+        parent::__construct($config);
         $this->detectServerUrl();
         $this->detectSugarVersion();
     }
 
+    public function loginAs(string $username): self
+    {
+        $password = $this->config->getUserPassword($username);
+        if ($password === null) {// Password is not set in Config, trying to guess
+            if (strtolower($username) === 'admin') {
+                $password = 'asdf';
+            } else {
+                $password = $username;
+            }
+        }
+        return $this->login($username, $password);
+    }
+
     public function login(string $username, string $password): self
     {
+        $this->apiCall('/ping?platform=base');
+        if ($this->getLastResponse()->getStatusCode() === 401) {
+            $pongData = json_decode((string)$this->getLastResponse()->getBody(), true);
+            if (isset($pongData['url']) && str_contains($pongData['url'], 'https://sts')) {
+                try {
+                    $this->idmLogin($pongData['url'], $username, $password);
+                } catch (\Throwable $exception) {
+                    throw new \RuntimeException("Login failed");
+                }
+            }
+        }
         $payload = json_encode([
             'username' => $username,
             'password' => $password,
@@ -44,6 +75,98 @@ trait SugarCRMAware
             throw new \RuntimeException("Login failed");
         }
         $this->session = new SugarSession($token);
+        return $this;
+    }
+
+    public function idmLogin(string $url, string $username, string $password): self
+    {
+        $loginUrl = '';
+        $stsRequest =  new Request(
+            'GET',
+            $url,
+            ['Content-Type' => 'application/json']
+        );
+        $this->send($stsRequest, [
+            RequestOptions::ON_STATS => function (TransferStats $stats) use (&$loginUrl){
+                $loginUrl =  (string) $stats->getEffectiveUri();
+                if ($stats->hasResponse()) {
+                    return $stats->getResponse();
+                }
+            }
+        ]);
+        $this->extractCsrfToken();
+        $this->extractRegexp('tid', '~name="tid"\s+value="(\d+)"~is');
+        $payload = [
+            'tid' => $this->getVar('tid'),
+            'user_name' => $username,
+            'password' => $password,
+            'csrf_token' => $this->getVar('csrf_token')
+        ];
+        $tokenRequest = new Request(
+            'POST',
+            $loginUrl,
+            [
+                'Content-Type' => 'application/x-www-form-urlencoded',
+            ],
+            http_build_query($payload)
+        );
+        $this->send($tokenRequest);
+        $cookiesHeader = $this->getLastResponse()->getHeader('Set-Cookie');
+        if (!empty($cookiesHeader)) {
+            $cookies = Header::parse($cookiesHeader);
+            if (!empty($cookies[0]['download_token_base'])) {
+                $token = $cookies[0]['download_token_base'];
+                $this->session = new SugarSession($token);
+            }
+        }
+        return $this;
+    }
+
+    public function logout(): self
+    {
+        $this->apiCall('/oauth2/bwc/logout', 'POST');
+
+        return parent::logout();
+    }
+
+    public function applyLicense(): self
+    {
+        $license = $this->config->getLicense();
+
+        if ($license !== Config::DEFAULT_LICENSE) {
+            return $this
+                ->loginAs('admin')
+                ->bwcLogin()
+                ->submitForm(
+                    'index.php?module=Administration&action=LicenseSettings',
+                    [],
+                    'index.php?module=Administration&action=LicenseSettings'
+                )
+                ->submitForm(
+                    'index.php',
+                    [
+                        'module' => 'Administration',
+                        'action' => 'Save',
+                        'return_module' => 'Administration',
+                        'return_action' => 'LicenseSettings',
+                        'button' => '++Save++',
+                        'license_key' => $license,
+                    ],
+                )
+                ->submitForm(
+                    'index.php',
+                    [
+                        'module' => 'Administration',
+                        'action' => 'Save',
+                        'return_module' => 'Administration',
+                        'return_action' => 'LicenseSettings',
+                        'button' => '++Re-validate++',
+                        'license_key' => $license,
+                    ],
+                )
+                ->logout();
+        }
+
         return $this;
     }
 
@@ -212,7 +335,7 @@ trait SugarCRMAware
                 ->extractCsrfToken();
         }
         if (isset($this->lastRequest)) {
-            $headers['Referer'] = $this->baseUri . $this->lastRequest->getRequestTarget();
+            $headers['Referer'] = $this->config->getBaseUri() . $this->lastRequest->getRequestTarget();
         }
         $request = new Request(
             $method,
@@ -279,5 +402,11 @@ trait SugarCRMAware
             throw new \RuntimeException('Cannot determine SugarCRM version');
         }
         static::$sugarVersion = $data;
+    }
+
+    public function shouldBeExecuted(): bool
+    {
+        return (is_null($this->minVersion) || self::$sugarVersion['sugar_version'] >= $this->minVersion)
+            && (is_null($this->maxVersion) || self::$sugarVersion['sugar_version'] <= $this->maxVersion);
     }
 }
