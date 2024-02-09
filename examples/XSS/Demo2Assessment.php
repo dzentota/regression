@@ -2,14 +2,13 @@
 
 declare(strict_types=1);
 
-use GuzzleHttp\Psr7\Request;
-use Regression\Assessment;
 use Regression\Severity;
+use Regression\SugarCRMAssessment;
 
 /**
  * Expected to be run with a headless Chrome
  */
-class Demo2Assessment extends Assessment
+class Demo2Assessment extends SugarCRMAssessment
 {
     use \Regression\Adapter\HeadlessBrowser;
     
@@ -32,13 +31,12 @@ class Demo2Assessment extends Assessment
      */
     public function run(): void
     {
-        $request = new Request(
-            'GET',
-            '/xss.html' // this page should pop up a JS alert
-        );
+//        $request = new Request(
+//            'POST',
+//            '/xss.html' // this page should pop up a JS alert
+//        );
 
-        $this->send($request)
-            ->assumeRegexp('~XSS!!! Detected~', $xss)
-            ->checkAssumptions('Found an XSS vulnerability', $xss);
+        $this->loginAs('admin')
+            ->bwcLogin();
     }
 }
