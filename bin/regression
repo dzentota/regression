@@ -20,7 +20,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.2') // Optional
+    ->setVersion('0.2.1') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
