@@ -423,12 +423,10 @@ trait SugarCRMAware
                 ->extractRegexp('licenseKey', '/name=\'license_key\'.*?value="(.*?)"/')
                 ->logout();
 
-            $licenseKey = $this->getVar('licenseKey');
-        } else {
-            $licenseKey = $this->config->getLicense();
+                $this->config->set('license', $this->getVar('licenseKey'));
         }
 
-        $subscriptionRequest = new Request('GET', "https://authenticate.sugarcrm.com/rest/subscription/$licenseKey");
+        $subscriptionRequest = new Request('GET', 'https://authenticate.sugarcrm.com/rest/subscription/' . $this->config->getLicense());
 
         $this
             ->send($subscriptionRequest)
