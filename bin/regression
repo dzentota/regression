@@ -20,7 +20,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.2.1') // Optional
+    ->setVersion('0.2.2') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
@@ -48,6 +48,19 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         }
 
         $licenses = $input->getOption('licenses') ?: [Config::DEFAULT_LICENSE];
+        $configParams = [
+            'baseUri' => $input->getArgument('base_uri'),
+        ];
+        if ($credentials = $input->getOption('credentials')) {
+            $loginPasswordPairs = [];
+            foreach ($credentials as $credential) {
+                [$login, $password] = explode(':', $credential, 2);
+                $loginPasswordPairs[$login] = $password;
+            }
+            $configParams['credentials'] = $loginPasswordPairs;
+        }
+
+        $code = 0;
 
         foreach ($licenses as $license) {
             $queueOutput = new QueueOutput();
@@ -62,6 +75,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $io->title('Running Regression Tests for license ' . $license . '...');
             $io->progressStart(iterator_count($iterator));
 
+            $configParams['license'] = $license;
+            $config = Config::create($configParams);
+
             foreach ($iterator as $classFile) {
                 if (!file_exists($classFile)) {
                     $io->error("$classFile doesn't exist. Skipped");
@@ -69,19 +85,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                 }
                 require_once $classFile;
                 $class = basename($classFile, '.php');
-                $configParams = [
-                    'baseUri' => $input->getArgument('base_uri'),
-                    'license' => $license,
-                ];
-                if ($credentials = $input->getOption('credentials')) {
-                    $loginPasswordPairs = [];
-                    foreach ($credentials as $credential) {
-                        [$login, $password] = explode(':', $credential, 2);
-                        $loginPasswordPairs[$login] = $password;
-                    }
-                    $configParams['credentials'] = $loginPasswordPairs;
-                }
-                $config = Config::create($configParams);
+
                 /**
                  * @var \Regression\Scenario $scenario
                  */
@@ -160,19 +164,20 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             ]);
             if ($failed === 0) {
                 $io->success('No issues found');
-                return 0;
             }
 
             if (count($regressions)) {
                 $io->error('Regression!');
                 $io->listing($regressions);
+                $code = 1;
             }
             if (count($vulnerabilities)) {
                 $io->error('Possible vulnerabilities');
                 $io->listing($vulnerabilities);
+                $code = 1;
             }
         }
 
-        return 1;
+        return $code;
     })
     ->run();
