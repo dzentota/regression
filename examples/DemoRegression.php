@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 use GuzzleHttp\Psr7\Request;
 use Regression\Regression;
+use Regression\SugarCRMRegression;
 
-class DemoRegression extends Regression
+class DemoRegression extends SugarCRMRegression
 {
     /**
      * @return string

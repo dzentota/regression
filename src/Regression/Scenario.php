@@ -10,7 +10,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use Regression\Client\ClientInterface;
 use Regression\Client\Guzzle;
-use Regression\Client\SessionInterface;
 
 /**
  * Class Scenario
@@ -272,14 +271,5 @@ abstract class Scenario
     public function applyLicense(): self
     {
         return $this;
-    }
-
-    public function __destruct()
-    {
-        $client = $this->getClient();
-
-        if ($client instanceof SessionInterface) {
-            $client->closeSession();
-        }
     }
 }

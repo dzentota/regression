@@ -5,41 +5,27 @@ namespace Regression\Client;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
 use HeadlessChromium\Browser;
-use HeadlessChromium\BrowserFactory;
 use HeadlessChromium\Communication\Message;
 use HeadlessChromium\Page;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Psr7\UriResolver;
 
-class Chrome implements ClientInterface, SessionInterface
+class Chrome implements ClientInterface
 {
-    private BrowserFactory $browserFactory;
-    private Browser $browser;
+    protected Browser $browser;
     private array $options;
     private string $baseUri;
 
-    public function __construct(BrowserFactory $browserFactory, array $options, string $baseUri)
+    /** @var string[] */
+    private static array $openedPageIds;
+
+    public function __construct(Browser $browser, array $options, string $baseUri)
     {
-        $this->browserFactory = $browserFactory;
+        $this->browser = $browser;
         $this->options = $options;
         $this->baseUri = $baseUri;
-    }
-
-    private function initBrowser(array $options): void
-    {
-        $mergedOptions = array_replace_recursive($this->options, $options);
-        $mergedOptions['keepAlive'] = true;
-
-        try {
-            $socket = @file_get_contents('/tmp/chrome-php-demo-socket');
-
-            $this->browser = $this->browserFactory::connectToBrowser($socket, $mergedOptions);
-        } catch (\Throwable $e) {
-            $this->browser = $this->browserFactory->createBrowser($mergedOptions);
-
-            file_put_contents('/tmp/chrome-php-demo-socket', $this->browser->getSocketUri(), LOCK_EX);
-        }
+        self::$openedPageIds = [];
     }
 
     /**
@@ -56,8 +42,26 @@ class Chrome implements ClientInterface, SessionInterface
      */
     public function send(RequestInterface $request, array $options = []): ResponseInterface
     {
-        $this->initBrowser($options);
+        $leaveOpened = false;
+
+        if (!empty($options['leaveOpened'])) {
+            $leaveOpened = true;
+            unset($options['leaveOpened']);
+        }
+
+        $pageLoadingStep = Page::LOAD;
+
+        if (!empty($options['pageLoadingStep'])) {
+            $pageLoadingStep = $options['pageLoadingStep'];
+            unset($options['pageLoadingStep']);
+        }
+
+        $this->options = array_replace_recursive($this->options, $options);
         $page = $this->browser->createPage();
+
+        if ($leaveOpened) {
+            self::$openedPageIds[] = $page->getSession()->getTargetId();
+        }
 
         $statusCode = 500;
 
@@ -87,14 +91,6 @@ class Chrome implements ClientInterface, SessionInterface
         });
 
         $page->getSession()->sendMessage(new Message('Fetch.enable', ['patterns' => [['urlPattern' => '*']]]));
-
-//        $page->getSession()->once(
-//            "method:Network.responseReceived",
-//            function ($params) use (& $statusCode, & $responseHeaders) {
-//                $statusCode = $params['response']['status'];
-//                $responseHeaders = $this->sanitizeResponseHeaders($params['response']['headers']);
-//            }
-//        );
 
         $page->getSession()->once(
             'method:Network.responseReceivedExtraInfo',
@@ -127,9 +123,15 @@ class Chrome implements ClientInterface, SessionInterface
         );
 
         $page->navigate($uri)
-            ->waitForNavigation(Page::LOAD, 300000);
-        return new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
+            ->waitForNavigation($pageLoadingStep, 300000);
+        $response = new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
             $page->getHtml() : $content);
+
+        if (!$leaveOpened) {
+            $page->close();
+        }
+
+        return $response;
     }
 
     private function isHtmlPage(array $headers): bool
@@ -152,12 +154,16 @@ class Chrome implements ClientInterface, SessionInterface
 
     public function getConfig($option = null)
     {
-        $options = $this->browserFactory->getOptions();
-        return $option === null ? $options : $options[$option];
+        return $option === null ? $this->options : $this->options[$option];
     }
 
-    public function closeSession(): void
+    /**
+     * @return false|string
+     */
+    public static function getLastOpenedPage()
     {
-        $this->browser->close();
+        $pages = self::$openedPageIds;
+
+        return end($pages);
     }
 }
