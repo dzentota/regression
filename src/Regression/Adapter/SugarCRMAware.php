@@ -429,7 +429,11 @@ trait SugarCRMAware
         $subscriptionRequest = new Request('GET', 'https://authenticate.sugarcrm.com/rest/subscription/' . $this->config->getLicense());
 
         $this
-            ->send($subscriptionRequest)
+            ->send($subscriptionRequest, [
+                'chromeClientOptions' => [
+                    'skipInterception' => true,
+                ],
+            ])
             ->extract('subscriptionProduct', function (ResponseInterface $response) {
                 $data = json_decode((string)$response->getBody(), true);
 

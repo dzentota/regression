@@ -12,7 +12,7 @@ use Regression\SugarCRMAssessment;
  */
 class Demo2Assessment extends SugarCRMAssessment
 {
-    use \Regression\Adapter\HeadlessBrowser;
+    use \Regression\Adapter\HeadlessBrowserAssessment;
     
     public function getSeverity(): ?string
     {
@@ -34,12 +34,12 @@ class Demo2Assessment extends SugarCRMAssessment
     public function run(): void
     {
         $request = new Request(
-            'POST',
+            'GET',
             '/xss.html' // this page should pop up a JS alert
         );
 
         $this->send($request)
-            ->assumeRegexp('~XSS!!! Detected~', $xss)
+            ->assumeNoXss($xss)
             ->checkAssumptions('Found an XSS vulnerability', $xss);
     }
 }

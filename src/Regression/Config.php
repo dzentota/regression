@@ -45,7 +45,7 @@ final class Config
 
     public function getUserPassword(string $username, $default = null): ?string
     {
-        return $this->data['credentials'][$username]?? $default;
+        return $this->data['credentials'][$username] ?? $default;
     }
 
     public function __get(string $param)

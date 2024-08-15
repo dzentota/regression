@@ -10,6 +10,7 @@ use HeadlessChromium\Page;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Psr7\UriResolver;
+use Regression\Helpers\Client\ChromeClientOptions;
 
 class Chrome implements ClientInterface
 {
@@ -42,24 +43,20 @@ class Chrome implements ClientInterface
      */
     public function send(RequestInterface $request, array $options = []): ResponseInterface
     {
-        $leaveOpened = false;
+        $chromeClientOptions = new ChromeClientOptions();
 
-        if (!empty($options['leaveOpened'])) {
-            $leaveOpened = true;
-            unset($options['leaveOpened']);
-        }
+        if (!empty($options['chromeClientOptions']) && is_array($options['chromeClientOptions'])) {
+            foreach ($options['chromeClientOptions'] as $name => $value) {
+                $chromeClientOptions->$name = $value;
+            }
 
-        $pageLoadingStep = Page::LOAD;
-
-        if (!empty($options['pageLoadingStep'])) {
-            $pageLoadingStep = $options['pageLoadingStep'];
-            unset($options['pageLoadingStep']);
+            unset($options['chromeClientOptions']);
         }
 
         $this->options = array_replace_recursive($this->options, $options);
         $page = $this->browser->createPage();
 
-        if ($leaveOpened) {
+        if ($chromeClientOptions->leaveOpened) {
             self::$openedPageIds[] = $page->getSession()->getTargetId();
         }
 
@@ -84,13 +81,15 @@ class Chrome implements ClientInterface
             }
 
             if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
-                $modifiedParams['postData'] = base64_encode($request->getBody()->getContents());
+                $modifiedParams['postData'] = base64_encode((string)$request->getBody());
             }
 
             $page->getSession()->sendMessageSync(new Message('Fetch.continueRequest', $modifiedParams));
         });
 
-        $page->getSession()->sendMessage(new Message('Fetch.enable', ['patterns' => [['urlPattern' => '*']]]));
+        if (!$chromeClientOptions->skipInterception) {
+            $page->getSession()->sendMessage(new Message('Fetch.enable', ['patterns' => [['urlPattern' => '*']]]));
+        }
 
         $page->getSession()->once(
             'method:Network.responseReceivedExtraInfo',
@@ -123,11 +122,14 @@ class Chrome implements ClientInterface
         );
 
         $page->navigate($uri)
-            ->waitForNavigation($pageLoadingStep, 300000);
+            ->waitForNavigation(
+                $chromeClientOptions->pageLoadingStep,
+                $chromeClientOptions->pageLoadingTimeout,
+            );
         $response = new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
             $page->getHtml() : $content);
 
-        if (!$leaveOpened) {
+        if (!$chromeClientOptions->leaveOpened) {
             $page->close();
         }
 

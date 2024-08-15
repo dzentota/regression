@@ -8,8 +8,6 @@ use HeadlessChromium\BrowserFactory;
 use HeadlessChromium\Page;
 use Regression\Client\Chrome;
 use Regression\Client\ClientInterface;
-use Regression\RegressionException;
-use Regression\Status;
 
 trait HeadlessBrowser
 {
@@ -19,19 +17,23 @@ trait HeadlessBrowser
 
     private function initBrowser(): array
     {
-        $options = array_replace_recursive([
+        $options = [
             'headless' => true,
             'windowSize' => [1920, 1080],
             'enableImages' => false,
             'ignoreCertificateErrors' => true,
             'keepAlive' => true,
-        ]);
+        ];
         $browserFactory = new BrowserFactory();
 
-        $socketFilePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'chrome-php-demo-socket';
+        $socketFilePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'chrome-php-regression-socket';
+
+        if (!(is_file($socketFilePath) && is_readable($socketFilePath))) {
+            touch($socketFilePath);
+        }
 
         try {
-            $socket = @file_get_contents($socketFilePath);
+            $socket = file_get_contents($socketFilePath);
 
             $this->browser = $browserFactory::connectToBrowser($socket, $options);
         } catch (\Throwable $e) {
@@ -64,25 +66,5 @@ trait HeadlessBrowser
         }
 
         return $this->browser->getPage($pageId);
-    }
-
-    public function expectNoXss(Page $page = null): self
-    {
-        if ($page) {
-            $content = $page->getHtml();
-        } else {
-            $content = (string)$this->lastResponse->getBody();
-        }
-
-        if (str_contains($content, 'XSS!!! Detected')) {
-            $message = 'XSS was found';
-
-            $this->status = Status::HAS_ISSUE;
-            $this->conclusion = $message;
-            throw new RegressionException($message);
-        }
-
-        $this->status = Status::NO_ISSUE;
-        return $this;
     }
 }
