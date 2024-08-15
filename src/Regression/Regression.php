@@ -127,7 +127,7 @@ abstract class Regression extends Scenario
      * @return mixed
      * @throws RegressionException
      */
-    private function throwException(string $message)
+    protected function throwException(string $message)
     {
         $this->status = Status::HAS_ISSUE;
         $this->conclusion = $message;

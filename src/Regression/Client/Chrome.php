@@ -4,23 +4,29 @@ namespace Regression\Client;
 
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
-use HeadlessChromium\BrowserFactory;
+use HeadlessChromium\Browser;
 use HeadlessChromium\Communication\Message;
+use HeadlessChromium\Page;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use GuzzleHttp\Psr7\UriResolver;
+use Regression\Helpers\Client\ChromeClientOptions;
 
 class Chrome implements ClientInterface
 {
-    private BrowserFactory $browserFactory;
+    protected Browser $browser;
     private array $options;
     private string $baseUri;
 
-    public function __construct(BrowserFactory $browserFactory, array $options, string $baseUri)
+    /** @var string[] */
+    private static array $openedPageIds;
+
+    public function __construct(Browser $browser, array $options, string $baseUri)
     {
-        $this->browserFactory = $browserFactory;
+        $this->browser = $browser;
         $this->options = $options;
         $this->baseUri = $baseUri;
+        self::$openedPageIds = [];
     }
 
     /**
@@ -37,40 +43,51 @@ class Chrome implements ClientInterface
      */
     public function send(RequestInterface $request, array $options = []): ResponseInterface
     {
-        //@todo add cache based on $options
-        /**
-         * use \HeadlessChromium\Exception\BrowserConnectionFailed;
-         *
-         * // path to the file to store websocket's uri
-         * $socket = \file_get_contents('/tmp/chrome-php-demo-socket');
-         *
-         * try {
-         * $browser = BrowserFactory::connectToBrowser($socket);
-         * } catch (BrowserConnectionFailed $e) {
-         * // The browser was probably closed, start it again
-         * $factory = new BrowserFactory();
-         * $browser = $factory->createBrowser([
-         * 'keepAlive' => true,
-         * ]);
-         *
-         * // save the uri to be able to connect again to browser
-         * \file_put_contents($socketFile, $browser->getSocketUri(), LOCK_EX);
-         * }
-         */
-        $browser = $this->browserFactory->createBrowser(
-            array_replace_recursive($this->options, $options)
-        );
-        $page = $browser->createPage();
+        $chromeClientOptions = $options['chromeClientOptions'] ?? new ChromeClientOptions();
+
+        $this->options = array_replace_recursive($this->options, $options);
+        $page = $this->browser->createPage();
+
+        if ($chromeClientOptions->leaveOpened) {
+            self::$openedPageIds[] = $page->getSession()->getTargetId();
+        }
 
         $statusCode = 500;
 
         $responseHeaders = [];
 
+        $page->getSession()->on('method:Fetch.requestPaused', function (array $params) use ($page, $request): void {
+            $method = $request->getMethod();
+            $modifiedParams = [
+                'requestId' => $params['requestId'],
+                'method' => $method,
+            ];
+
+            foreach (array_merge_recursive($params['request']['headers'], $request->getHeaders()) as $name => $value) {
+                $modifiedParams['headers'][] = [
+                    'name' => $name,
+                    'value' => is_string($value)
+                        ? $value
+                        : implode(', ', $value),
+                ];
+            }
+
+            if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
+                $modifiedParams['postData'] = base64_encode((string)$request->getBody());
+            }
+
+            $page->getSession()->sendMessageSync(new Message('Fetch.continueRequest', $modifiedParams));
+        });
+
+        if (!$chromeClientOptions->skipInterception) {
+            $page->getSession()->sendMessage(new Message('Fetch.enable', ['patterns' => [['urlPattern' => '*']]]));
+        }
+
         $page->getSession()->once(
-            "method:Network.responseReceived",
+            'method:Network.responseReceivedExtraInfo',
             function ($params) use (& $statusCode, & $responseHeaders) {
-                $statusCode = $params['response']['status'];
-                $responseHeaders = $this->sanitizeResponseHeaders($params['response']['headers']);
+                $statusCode = $params['statusCode'];
+                $responseHeaders = $this->sanitizeResponseHeaders($params['headers']);
             }
         );
 
@@ -97,9 +114,18 @@ class Chrome implements ClientInterface
         );
 
         $page->navigate($uri)
-            ->waitForNavigation();
-        return new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
+            ->waitForNavigation(
+                $chromeClientOptions->pageLoadingStep,
+                $chromeClientOptions->pageLoadingTimeout,
+            );
+        $response = new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
             $page->getHtml() : $content);
+
+        if (!$chromeClientOptions->leaveOpened) {
+            $page->close();
+        }
+
+        return $response;
     }
 
     private function isHtmlPage(array $headers): bool
@@ -122,7 +148,16 @@ class Chrome implements ClientInterface
 
     public function getConfig($option = null)
     {
-        $options = $this->browserFactory->getOptions();
-        return $option === null ? $options : $options[$option];
+        return $option === null ? $this->options : $this->options[$option];
+    }
+
+    /**
+     * @return false|string
+     */
+    public static function getLastOpenedPage()
+    {
+        $pages = self::$openedPageIds;
+
+        return end($pages);
     }
 }

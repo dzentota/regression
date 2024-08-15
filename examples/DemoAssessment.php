@@ -6,8 +6,9 @@ use GuzzleHttp\Psr7\Request;
 use Psr\Http\Message\ResponseInterface;
 use Regression\Assessment;
 use Regression\Severity;
+use Regression\SugarCRMAssessment;
 
-class DemoAssessment extends Assessment
+class DemoAssessment extends SugarCRMAssessment
 {
     public function getSeverity(): ?string
     {
