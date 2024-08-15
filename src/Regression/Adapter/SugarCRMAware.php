@@ -9,8 +9,10 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use GuzzleHttp\TransferStats;
+use HeadlessChromium\Page;
 use Psr\Http\Message\ResponseInterface;
 use Regression\Config;
+use Regression\Helpers\Client\ChromeClientOptions;
 use Regression\RegressionException;
 use Regression\SugarSession;
 
@@ -430,9 +432,12 @@ trait SugarCRMAware
 
         $this
             ->send($subscriptionRequest, [
-                'chromeClientOptions' => [
-                    'skipInterception' => true,
-                ],
+                'chromeClientOptions' => new ChromeClientOptions(
+                    false,
+                    Page::LOAD,
+                    null,
+                    true,
+                ),
             ])
             ->extract('subscriptionProduct', function (ResponseInterface $response) {
                 $data = json_decode((string)$response->getBody(), true);

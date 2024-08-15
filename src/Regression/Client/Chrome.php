@@ -43,15 +43,7 @@ class Chrome implements ClientInterface
      */
     public function send(RequestInterface $request, array $options = []): ResponseInterface
     {
-        $chromeClientOptions = new ChromeClientOptions();
-
-        if (!empty($options['chromeClientOptions']) && is_array($options['chromeClientOptions'])) {
-            foreach ($options['chromeClientOptions'] as $name => $value) {
-                $chromeClientOptions->$name = $value;
-            }
-
-            unset($options['chromeClientOptions']);
-        }
+        $chromeClientOptions = $options['chromeClientOptions'] ?? new ChromeClientOptions();
 
         $this->options = array_replace_recursive($this->options, $options);
         $page = $this->browser->createPage();
