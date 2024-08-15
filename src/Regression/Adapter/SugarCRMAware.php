@@ -432,12 +432,7 @@ trait SugarCRMAware
 
         $this
             ->send($subscriptionRequest, [
-                'chromeClientOptions' => new ChromeClientOptions(
-                    false,
-                    Page::LOAD,
-                    null,
-                    true,
-                ),
+                'chromeClientOptions' => new ChromeClientOptions(skipInterception: true),
             ])
             ->extract('subscriptionProduct', function (ResponseInterface $response) {
                 $data = json_decode((string)$response->getBody(), true);
