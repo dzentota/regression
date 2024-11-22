@@ -3,7 +3,6 @@
 error_reporting(E_ALL & ~E_DEPRECATED);
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-use GuzzleHttp\Psr7\Message;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Regression\Helpers\Output\QueueOutput;
@@ -20,7 +19,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.2.3') // Optional
+    ->setVersion('0.2.4') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
