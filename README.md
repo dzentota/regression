@@ -19,7 +19,7 @@ or add dzentota/regression to .phive/phars.xml e.g
 ```xml
 <?xml version="1.0"?>
 <phive xmlns="https://phar.io/phive">
-  <phar name="dzentota/regression" version="^0.1.0" installed="0.1.0" location="./vendor/bin/regression.phar" copy="true"/>
+  <phar name="dzentota/regression" version="^0.2.4" installed="0.1.0" location="./vendor/bin/regression.phar" copy="true"/>
 </phive>
 ```
 
