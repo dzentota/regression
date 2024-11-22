@@ -9,7 +9,6 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use GuzzleHttp\TransferStats;
-use HeadlessChromium\Page;
 use Psr\Http\Message\ResponseInterface;
 use Regression\Config;
 use Regression\Helpers\Client\ChromeClientOptions;
@@ -99,8 +98,8 @@ trait SugarCRMAware
                 }
             }
         ]);
-        $this->extractCsrfToken();
-        $this->extractRegexp('tid', '~name="tid"\s+value="(\d+)"~is');
+        $this->extractRegexp('csrf_token', '~name="token"\svalue\s*=\s*"(.*?)"~is');
+        $this->extractRegexp('tid', '~name="tenant_hint"\s+value="(\d+)"~is');
         $payload = [
             'tid' => $this->getVar('tid'),
             'user_name' => $username,
@@ -244,20 +243,35 @@ trait SugarCRMAware
 
     public function installUploadedPackage(string $id): self
     {
-        $this->submitForm(
-            'index.php?module=Administration&view=module&action=UpgradeWizard_prepare',
+        $this->submitForm('index.php?module=Administration&view=module&action=UpgradeWizard_prepare',
             [
                 'btn_mode' => 'Install',
                 'install_file' => $id,
-                'mode' => 'Install'
+                'mode' => 'Install',
             ]
         );
-
-        $this->submitForm(
-            'index.php?module=Administration&view=module&action=UpgradeWizard_commit',
+        $this->submitForm('index.php?module=Administration&view=module&action=UpgradeWizard_commit',
+            [
+                'mode' => 'PreCheck',
+                'package_id' => $id,
+            ]
+        );
+        $this->submitForm('index.php?module=Administration&view=module&action=UpgradeWizard_commit',
+            [
+                'mode' => 'Scan',
+                'package_id' => $id,
+            ]
+        );
+        $this->submitForm('index.php?module=Administration&view=module&action=UpgradeWizard_commit',
+            [
+                'mode' => 'RectorScan',
+                'package_id' => $id,
+            ]
+        );
+        $this->submitForm('index.php?module=Administration&view=module&action=UpgradeWizard_commit',
             [
                 'mode' => 'Install',
-                'package_id' => $id
+                'package_id' => $id,
             ]
         );
         return $this;
@@ -279,7 +293,6 @@ trait SugarCRMAware
 
     public function bwcLogin(): self
     {
-//        $this->client->getConfig('cookies')?->clear();
         $sidRequest = new Request(
             'POST',
             $this->prependBase('/oauth2/bwc/login'),
@@ -305,7 +318,11 @@ trait SugarCRMAware
             if (!empty($m[1])) {
                 return $m[1];
             }
-            preg_match('~SUGAR\.csrf\.form_token = "(.*?)"~is', $content, $m);
+            preg_match('~SUGAR\.csrf\.form_token\s*=\s*"(.*?)"~is', $content, $m);
+            if (!empty($m[1])) {
+                return $m[1];
+            }
+            preg_match('~name="token"\svalue\s*=\s*"(.*?)"~is', $content, $m);
             if (empty($m[1])) {
                 return false;
             }
