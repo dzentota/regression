@@ -129,4 +129,9 @@ PHP;
             'published_date' => (new \DateTime())->format('Y-m-d H:i:s')
         ];
     }
+
+    public function getName(): string
+    {
+        return $this->packageName;
+    }
 }
