@@ -12,6 +12,7 @@ use GuzzleHttp\TransferStats;
 use Psr\Http\Message\ResponseInterface;
 use Regression\Config;
 use Regression\Helpers\Client\ChromeClientOptions;
+use Regression\Helpers\MLPBuilder;
 use Regression\RegressionException;
 use Regression\SugarSession;
 
@@ -283,10 +284,13 @@ trait SugarCRMAware
      * @throws RegressionException
      * @throws \GuzzleHttp\Exception\GuzzleException
      */
-    public function installMLP(string $pathToArchive): self
+    public function installMLP(MLPBuilder $mlp): self
     {
-        $this->uploadMLP($pathToArchive)
-            ->extractRegexp('package_id', '~var mti_data\s*=\s*\[\[".*?","(.*?)"~is')
+        $path = $mlp->getPath();
+        $name = $mlp->getName();
+
+        $this->uploadMLP($path)
+            ->extractRegexp('package_id', "~var mti_data\s*=\s*\[\[\".*$name\",\"(.*?)\"~is")
             ->extractCsrfToken();
         return $this->installUploadedPackage($this->getVar('package_id'));
     }
