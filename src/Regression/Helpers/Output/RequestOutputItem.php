@@ -20,7 +20,6 @@ class RequestOutputItem extends QueueOutputItem
     public function execOutput(OutputStyle $style): callable
     {
         return function () use ($style) {
-            $style->newLine(2);
             $style->title('Request to ' . $this->request->getUri());
             $style->section(
                 Message::toString($this->request)
