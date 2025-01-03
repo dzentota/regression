@@ -31,7 +31,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('failed_steps', null, InputOption::VALUE_NONE, 'Show last request/response for failed tests')
     ->addOption('licenses', 'l', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
-
+        $start = microtime(true);
         $type = $input->getOption('type');
         $testFiles = $input->getOption('test_files');
         if (!empty($testFiles)) {
@@ -176,6 +176,13 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                 $code = 1;
             }
         }
+
+        $timeElapsedSecs = microtime(true) - $start;
+        $io->info("Execution time: $timeElapsedSecs seconds.");
+
+        $io->info('Memory consumed: ' . round(memory_get_usage() / 1024) . 'KB.');
+
+        $io->info('Peak usage: ' . round(memory_get_peak_usage() / 1024) . 'KB.');
 
         return $code;
     })
