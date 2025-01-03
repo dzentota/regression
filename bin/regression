@@ -72,10 +72,16 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
             $io = new SymfonyStyle($input, $output);
             $io->title('Running Regression Tests for license ' . $license . '...');
-            $io->progressStart(iterator_count($iterator));
-
+            $totalScenarios = iterator_count($iterator);
             $configParams['license'] = $license;
             $config = Config::create($configParams);
+
+            $isDebug = $input->getOption('debug');
+            $isFailedScenarios = $input->getOption('failed_scenarios');
+            $isFailedSteps = $input->getOption('failed_steps');
+            if (!($isDebug || $isFailedScenarios || $isFailedSteps)) {
+                $io->progressStart($totalScenarios);
+            }
 
             foreach ($iterator as $classFile) {
                 if (!file_exists($classFile)) {
@@ -102,27 +108,36 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                     });
                 }
 
-                $isDebug = $input->getOption('debug');
-                $isFailedScenarios = $input->getOption('failed_scenarios');
-                $isFailedSteps = $input->getOption('failed_steps');
-
                 if ($isDebug || $isFailedScenarios || $isFailedSteps) {
                     $scenario
-                        ->onRequest(function (RequestInterface $request, array $options = []) use ($queueOutput, $isFailedSteps) {
+                        ->onRequest(function (RequestInterface $request, array $options = []) use ($io, $isDebug, $queueOutput, $isFailedSteps) {
+                            $requestOutputItem = new RequestOutputItem($request, $options);
+                            if ($isDebug) {
+                                $requestOutputItem->execOutput($io)();
+                                return;
+                            }
                             if ($isFailedSteps) {
                                 $queueOutput->clear();
                             }
 
-                            $queueOutput->push(new RequestOutputItem($request, $options));
+                            $queueOutput->push($requestOutputItem);
                         })
-                        ->onResponse(function (ResponseInterface $response) use ($queueOutput) {
-                            $queueOutput->push(new ResponseOutputItem($response));
+                        ->onResponse(function (ResponseInterface $response) use ($io, $isDebug, $queueOutput) {
+                            $responseOutputItem = new ResponseOutputItem($response);
+                            if ($isDebug) {
+                                $responseOutputItem->execOutput($io)();
+                                return;
+                            }
+                            $queueOutput->push($responseOutputItem);
                         });
                 }
 
                 $scenarioFailed = false;
                 $testsCount++;
                 try {
+                    if ($isDebug || $isFailedScenarios || $isFailedSteps) {
+                        $io->title($scenario->getDescription());
+                    }
                     $scenario
                         ->applyLicense()
                         ->run();
@@ -145,15 +160,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                     $scenarioFailed = true;
                     $failed++;
                 } finally {
-                    if ($isDebug || (($isFailedScenarios || $isFailedSteps) && $scenarioFailed)) {
-                        $io->newLine(2);
-                        $io->title($scenario->getDescription());
-
-                        $queueOutput->flushToOutput($io);
+                    if ($isFailedScenarios || $isFailedSteps) {
+                        if ($scenarioFailed) {
+                            $io->error('FAILED');
+                            $queueOutput->flushToOutput($io);
+                        } else {
+                            $io->success('PASSED');
+                        }
                     } else {
                         $queueOutput->clear();
+                        $io->progressAdvance();
                     }
-                    $io->progressAdvance();
                 }
             }
 
