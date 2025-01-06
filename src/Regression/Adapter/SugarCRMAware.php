@@ -23,15 +23,23 @@ trait SugarCRMAware
 
     protected static string $subscriptionProduct;
 
+    private static bool $serverInfoReceived = false;
+    private static bool $licenseUpdated = false;
+
     protected ?string $minVersion = null;
     protected ?string $maxVersion = null;
 
     public function __construct(Config $config)
     {
         parent::__construct($config);
-        $this->detectServerUrl();
-        $this->detectSugarVersion();
-        $this->detectSugarSubscription();
+
+        if (!static::$serverInfoReceived) {
+            $this->detectServerUrl();
+            $this->detectSugarVersion();
+            $this->detectSugarSubscription();
+
+            static::$serverInfoReceived = true;
+        }
     }
 
     public function loginAs(string $username): self
@@ -138,8 +146,8 @@ trait SugarCRMAware
     {
         $license = $this->config->getLicense();
 
-        if ($license !== Config::DEFAULT_LICENSE) {
-            return $this
+        if ($license !== Config::DEFAULT_LICENSE && !self::$licenseUpdated) {
+            $this
                 ->loginAs('admin')
                 ->bwcLogin()
                 ->submitForm(
@@ -170,6 +178,8 @@ trait SugarCRMAware
                     ],
                 )
                 ->logout();
+
+            self::$licenseUpdated = true;
         }
 
         return $this;
@@ -446,7 +456,7 @@ trait SugarCRMAware
                 ->extractRegexp('licenseKey', '/name=\'license_key\'.*?value="(.*?)"/')
                 ->logout();
 
-                $this->config->set('license', $this->getVar('licenseKey'));
+            $this->config->set('license', $this->getVar('licenseKey'));
         }
 
         $subscriptionRequest = new Request('GET', 'https://authenticate.sugarcrm.com/rest/subscription/' . $this->config->getLicense());
