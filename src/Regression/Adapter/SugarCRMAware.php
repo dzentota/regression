@@ -10,11 +10,13 @@ use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use GuzzleHttp\TransferStats;
 use Psr\Http\Message\ResponseInterface;
+use Regression\Adapter\SugarCRM\ACL\ModulePermissions;
 use Regression\Config;
 use Regression\Helpers\Client\ChromeClientOptions;
 use Regression\Helpers\MLPBuilder;
 use Regression\RegressionException;
 use Regression\SugarSession;
+use Regression\Adapter\Sugarcrm\Role;
 
 trait SugarCRMAware
 {
@@ -94,14 +96,14 @@ trait SugarCRMAware
     public function idmLogin(string $url, string $username, string $password): self
     {
         $loginUrl = '';
-        $stsRequest =  new Request(
+        $stsRequest = new Request(
             'GET',
             $url,
             ['Content-Type' => 'application/json']
         );
         $this->send($stsRequest, [
-            RequestOptions::ON_STATS => function (TransferStats $stats) use (&$loginUrl){
-                $loginUrl =  (string) $stats->getEffectiveUri();
+            RequestOptions::ON_STATS => function (TransferStats $stats) use (&$loginUrl) {
+                $loginUrl = (string)$stats->getEffectiveUri();
                 if ($stats->hasResponse()) {
                     return $stats->getResponse();
                 }
@@ -355,13 +357,14 @@ trait SugarCRMAware
      * @throws RegressionException
      */
     public function submitForm(
-        string $action,
-        array $data,
+        string  $action,
+        array   $data,
         ?string $formUri = null,
-        string $method = 'POST',
-        array $headers = [],
-        $options = []
-    ): self {
+        string  $method = 'POST',
+        array   $headers = [],
+                $options = []
+    ): self
+    {
         if ($formUri !== null) {
             $formRequest = new Request(
                 'GET',
@@ -396,10 +399,11 @@ trait SugarCRMAware
     public function apiCall(
         string $endpoint,
         string $method = 'GET',
-        array $data = [],
-        array $headers = [],
-        array $options = []
-    ): self {
+        array  $data = [],
+        array  $headers = [],
+        array  $options = []
+    ): self
+    {
         $request = new Request(
             $method,
             $this->prependBase($endpoint),
@@ -444,6 +448,51 @@ trait SugarCRMAware
     {
         return (is_null($this->minVersion) || self::$sugarVersion['sugar_version'] >= $this->minVersion)
             && (is_null($this->maxVersion) || self::$sugarVersion['sugar_version'] <= $this->maxVersion);
+    }
+
+    public function createRole(Role $role): self
+    {
+        $this
+            ->submitForm('index.php?module=ACLRoles&action=EditView', [], 'index.php?module=ACLRoles&action=EditView')
+            ->submitForm(
+                'index.php',
+                [
+                    'module' => 'ACLRoles',
+                    'action' => 'Save',
+                    'name' => $role->getName(),
+                ]
+            )
+            ->extractRegexp('roleId', '/<input type="hidden" name="record" value="(.*?)"/');
+        $role->setId($this->getVar('roleId'));
+        $guids = [];
+        foreach ($role->getPermissions() as $modulePermissions) {
+            $guids = array_merge($guids, $this->prepareACLFormData($modulePermissions));
+        }
+        if (!empty($guids)) {
+            $this->submitForm(
+                'index.php',
+                [
+                    'record' => $role->getId(),
+                    'module' => 'ACLRoles',
+                    'action' => 'Save',
+                    ...$guids
+                ]
+            );
+        }
+        return $this;
+    }
+
+    protected function prepareACLFormData(ModulePermissions $modulePermissions): array
+    {
+        $module = $modulePermissions->getModule()->value;
+        $guids = [];
+        foreach ($modulePermissions->getPermissions() as $permission) {
+            $id = sprintf('ACLEditView_Access_%s_%s', $module, $permission->getName());
+            $regExp = sprintf('/id="%s">\s*<div\s+style="display: none" id="(.*)"/', $id);
+            $this->extractRegexp($id, $regExp);
+            $guids['act_guid' . $this->getVar($id)] = $permission->value;
+        }
+        return $guids;
     }
 
     protected function detectSugarSubscription(): void

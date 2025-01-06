@@ -19,7 +19,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.2.5') // Optional
+    ->setVersion('0.2.7') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
@@ -79,7 +79,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $isDebug = $input->getOption('debug');
             $isFailedScenarios = $input->getOption('failed_scenarios');
             $isFailedSteps = $input->getOption('failed_steps');
+            $showProgress = false;
             if (!($isDebug || $isFailedScenarios || $isFailedSteps)) {
+                $showProgress = true;
                 $io->progressStart($totalScenarios);
             }
 
@@ -169,12 +171,12 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                         }
                     } else {
                         $queueOutput->clear();
-                        $io->progressAdvance();
+                        $showProgress && $io->progressAdvance();
                     }
                 }
             }
 
-            $io->progressFinish();
+            $showProgress && $io->progressFinish();
             $io->horizontalTable(['Total', 'Success', 'Issues', 'Skipped'], [
                 [$testsCount, $success, $failed, $skipped]
             ]);
