@@ -6,5 +6,6 @@
     "src/",
     "vendor/"
   ],
-  "files": ["vendor/autoload.php"]
+  "files": ["vendor/autoload.php"],
+  "check-requirements": false
 }
