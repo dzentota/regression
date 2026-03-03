@@ -9,12 +9,16 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use GuzzleHttp\TransferStats;
+use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Regression\Adapter\SugarCRM\ACL\ModulePermissions;
 use Regression\Config;
 use Regression\Helpers\Client\ChromeClientOptions;
 use Regression\Helpers\MLPBuilder;
+use Regression\LoginService\IdentityManager;
 use Regression\RegressionException;
+use Regression\SessionManager\AppSession;
+use Regression\SessionManager\SessionStorage;
 use Regression\SugarSession;
 use Regression\Adapter\Sugarcrm\Role;
 
@@ -31,14 +35,17 @@ trait SugarCRMAware
     protected ?string $minVersion = null;
     protected ?string $maxVersion = null;
 
-    public function __construct(Config $config)
+    protected ?bool $isIdm = null;
+
+    public function __construct(Config $config, IdentityManager $identityManager)
     {
-        parent::__construct($config);
+        parent::__construct($config, $identityManager);
 
         if (!static::$serverInfoReceived) {
             $this->detectServerUrl();
             $this->detectSugarVersion();
             $this->detectSugarSubscription();
+            $this->checkIsIdm();
 
             static::$serverInfoReceived = true;
         }
@@ -57,39 +64,64 @@ trait SugarCRMAware
         return $this->login($username, $password);
     }
 
+    private function getPingCallback(): callable
+    {
+        return function (): int {
+            $this->apiCall('/ping?platform=base');
+
+            return $this->getLastResponse()->getStatusCode();
+        };
+    }
+
+    private function getUsualLoginCallback(string $username, string $password): callable
+    {
+        return function () use ($username, $password): string {
+            $payload = json_encode([
+                'username' => $username,
+                'password' => $password,
+                'grant_type' => 'password',
+                'client_id' => 'sugar',
+                'platform' => 'base',
+                'client_secret' => ''
+            ]);
+
+            $tokenRequest = new Request(
+                'POST',
+                $this->prependBase("/oauth2/token?platform=base"),
+                ['Content-Type' => 'application/json'],
+                $payload
+            );
+            $this->send($tokenRequest);
+            if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
+                throw new \RuntimeException("Login failed");
+            }
+
+            return $token;
+        };
+    }
+
+    public function getBwcLoginCallback(): callable
+    {
+        return function (): string {
+            $this->apiCall('/oauth2/bwc/login');
+            $cookie = $this->lastResponse->getHeaderLine('Set-Cookie');
+            if (!preg_match("/PHPSESSID=([^;]+);/", $cookie, $m)) {
+                throw new \RuntimeException("Session ID not found");
+            }
+
+            return $m[1];
+        };
+    }
+
     public function login(string $username, string $password): self
     {
-        $this->apiCall('/ping?platform=base');
-        if ($this->getLastResponse()->getStatusCode() === 401) {
-            $pongData = json_decode((string)$this->getLastResponse()->getBody(), true);
-            if (isset($pongData['url']) && str_contains($pongData['url'], 'https://sts')) {
-                try {
-                    $this->idmLogin($pongData['url'], $username, $password);
-                } catch (\Throwable $exception) {
-                    throw new \RuntimeException("Login failed");
-                }
-            }
-        }
-        $payload = json_encode([
-            'username' => $username,
-            'password' => $password,
-            'grant_type' => 'password',
-            'client_id' => 'sugar',
-            'platform' => 'base',
-            'client_secret' => ''
-        ]);
-
-        $tokenRequest = new Request(
-            'POST',
-            $this->prependBase("/oauth2/token?platform=base"),
-            ['Content-Type' => 'application/json'],
-            $payload
+        $this->identityManager->switchActiveSession(
+            $username,
+            $this->getPingCallback(),
+            $this->getUsualLoginCallback($username, $password),
+            $this->getBwcLoginCallback(),
         );
-        $this->send($tokenRequest);
-        if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
-            throw new \RuntimeException("Login failed");
-        }
-        $this->session = new SugarSession($token);
+
         return $this;
     }
 
@@ -140,6 +172,8 @@ trait SugarCRMAware
     public function logout(): self
     {
         $this->apiCall('/oauth2/bwc/logout', 'POST');
+        $this->activeSessions->removeSession($this->activeSessionLogin);
+        $this->activeSessionLogin = '';
 
         return parent::logout();
     }
@@ -178,8 +212,7 @@ trait SugarCRMAware
                         'button' => '++Re-validate++',
                         'license_key' => $license,
                     ],
-                )
-                ->logout();
+                );
 
             self::$licenseUpdated = true;
         }
@@ -189,26 +222,36 @@ trait SugarCRMAware
 
     public function portalLogin(string $username, string $password): self
     {
-        $payload = json_encode([
-            'username' => $username,
-            'password' => $password,
-            'grant_type' => 'password',
-            'client_id' => 'support_portal',
-            'platform' => 'portal',
-            'client_secret' => ''
-        ]);
+        $activeSession = $this->activeSessions->getSession($username);
 
-        $tokenRequest = new Request(
-            'POST',
-            $this->prependBase("/oauth2/token?platform=portal"),
-            ['Content-Type' => 'application/json'],
-            $payload
-        );
-        $this->send($tokenRequest);
-        if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
-            throw new \RuntimeException("Login failed");
+        if ($activeSession === null) {
+            $payload = json_encode([
+                'username' => $username,
+                'password' => $password,
+                'grant_type' => 'password',
+                'client_id' => 'support_portal',
+                'platform' => 'portal',
+                'client_secret' => ''
+            ]);
+
+            $tokenRequest = new Request(
+                'POST',
+                $this->prependBase("/oauth2/token?platform=portal"),
+                ['Content-Type' => 'application/json'],
+                $payload
+            );
+            $this->send($tokenRequest);
+            if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
+                throw new \RuntimeException("Login failed");
+            }
+            $this->session = new SugarSession($token);
+            $this->activeSessions->addSession($username, new AppSession($this->session));
+        } else {
+            $this->session = $activeSession->getAppSession();
         }
-        $this->session = new SugarSession($token);
+
+        $this->activeSessionLogin = $username;
+
         return $this;
     }
 
@@ -309,16 +352,26 @@ trait SugarCRMAware
 
     public function bwcLogin(): self
     {
-        $sidRequest = new Request(
-            'POST',
-            $this->prependBase('/oauth2/bwc/login'),
-            ['Content-Type' => 'application/json'],
-            json_encode([])
-        );
-        $this->send($sidRequest);
-        if (!preg_match("/PHPSESSID=([^;]+);/", $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
-            throw new \RuntimeException("Session ID not found");
+        $session = $this->activeSessions->getSession($this->activeSessionLogin);
+
+        if (!$session->getBwcSessionCookie()) {
+//            $sidRequest = new Request(
+//                'POST',
+//                $this->prependBase('/oauth2/bwc/login'),
+//                ['Content-Type' => 'application/json'],
+//                json_encode([])
+//            );
+//            $this->send($sidRequest);
+            $this->apiCall('/oauth2/bwc/login');
+            $cookie = $this->lastResponse->getHeaderLine('Set-Cookie');
+            if (!preg_match("/PHPSESSID=([^;]+);/", $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
+                throw new \RuntimeException("Session ID not found");
+            }
+            $session->setBwcSessionCookie($cookie);
+        } else {
+            setcookie('PHPSESSID', $session->getBwcSessionCookie());
         }
+
         return $this;
     }
 
@@ -363,8 +416,7 @@ trait SugarCRMAware
         string  $method = 'POST',
         array   $headers = [],
                 $options = []
-    ): self
-    {
+    ): self {
         if ($formUri !== null) {
             $formRequest = new Request(
                 'GET',
@@ -376,6 +428,7 @@ trait SugarCRMAware
         if (isset($this->lastRequest)) {
             $headers['Referer'] = $this->config->getBaseUri() . $this->lastRequest->getRequestTarget();
         }
+        $headers['Cookie'] = $this->activeSessions->getSession($this->activeSessionLogin)->getBwcSessionCookie();
         $request = new Request(
             $method,
             $action,
@@ -502,8 +555,7 @@ trait SugarCRMAware
                 ->loginAs('admin')
                 ->bwcLogin()
                 ->get('index.php?module=Administration&action=LicenseSettings&bwcFrame=1')
-                ->extractRegexp('licenseKey', '/name=\'license_key\'.*?value="(.*?)"/')
-                ->logout();
+                ->extractRegexp('licenseKey', '/name=\'license_key\'.*?value="(.*?)"/');
 
             $this->config->set('license', $this->getVar('licenseKey'));
         }

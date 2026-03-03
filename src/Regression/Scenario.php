@@ -10,6 +10,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use Regression\Client\ClientInterface;
 use Regression\Client\Guzzle;
+use Regression\LoginService\IdentityManager;
 
 /**
  * Class Scenario
@@ -57,9 +58,10 @@ abstract class Scenario
     /**
      * Scenario constructor.
      */
-    public function __construct(protected Config $config)
-    {
-    }
+    public function __construct(
+        protected Config $config,
+        protected IdentityManager $identityManager,
+    ) {}
 
     /**
      * @param ClientInterface $client
@@ -145,8 +147,11 @@ abstract class Scenario
      */
     protected function initSession(RequestInterface $request): RequestInterface
     {
-        if (isset($this->session)) {
-            return $this->session->init($request);
+        if ($this->identityManager->getActiveSession()) {
+            return $this->identityManager
+                ->getActiveSession()
+                ->getAppSession()
+                ->init($request);
         }
         return $request;
     }
