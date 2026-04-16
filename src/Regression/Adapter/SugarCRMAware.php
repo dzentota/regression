@@ -9,10 +9,11 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Utils;
 use GuzzleHttp\RequestOptions;
 use GuzzleHttp\TransferStats;
+use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Regression\Adapter\SugarCRM\ACL\ModulePermissions;
+use Regression\Client\Guzzle as GuzzleClient;
 use Regression\Config;
-use Regression\Helpers\Client\ChromeClientOptions;
 use Regression\Helpers\MLPBuilder;
 use Regression\RegressionException;
 use Regression\SugarSession;
@@ -85,7 +86,7 @@ trait SugarCRMAware
             ['Content-Type' => 'application/json'],
             $payload
         );
-        $this->send($tokenRequest);
+        $this->apiSend($tokenRequest);
         if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
             throw new \RuntimeException("Login failed");
         }
@@ -101,7 +102,7 @@ trait SugarCRMAware
             $url,
             ['Content-Type' => 'application/json']
         );
-        $this->send($stsRequest, [
+        $this->apiSend($stsRequest, [
             RequestOptions::ON_STATS => function (TransferStats $stats) use (&$loginUrl) {
                 $loginUrl = (string)$stats->getEffectiveUri();
                 if ($stats->hasResponse()) {
@@ -125,7 +126,7 @@ trait SugarCRMAware
             ],
             http_build_query($payload)
         );
-        $this->send($tokenRequest);
+        $this->apiSend($tokenRequest);
         $cookiesHeader = $this->getLastResponse()->getHeader('Set-Cookie');
         if (!empty($cookiesHeader)) {
             $cookies = Header::parse($cookiesHeader);
@@ -204,7 +205,7 @@ trait SugarCRMAware
             ['Content-Type' => 'application/json'],
             $payload
         );
-        $this->send($tokenRequest);
+        $this->apiSend($tokenRequest);
         if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
             throw new \RuntimeException("Login failed");
         }
@@ -220,7 +221,7 @@ trait SugarCRMAware
      */
     public function uploadMLP(string $pathToArchive): self
     {
-        $this->get('index.php?module=Administration&view=module&action=UpgradeWizard')
+        $this->apiGet('index.php?module=Administration&view=module&action=UpgradeWizard')
             ->extractCsrfToken();
 
         $headers['Referer'] = $this->getReferer();
@@ -251,7 +252,7 @@ trait SugarCRMAware
             $multiPartStream
         );
 
-        return $this->send($mlpUpload);
+        return $this->apiSend($mlpUpload);
     }
 
     public function installUploadedPackage(string $id): self
@@ -315,7 +316,7 @@ trait SugarCRMAware
             ['Content-Type' => 'application/json'],
             json_encode([])
         );
-        $this->send($sidRequest);
+        $this->apiSend($sidRequest);
         if (!preg_match("/PHPSESSID=([^;]+);/", $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
             throw new \RuntimeException("Session ID not found");
         }
@@ -370,7 +371,7 @@ trait SugarCRMAware
                 'GET',
                 $formUri
             );
-            $this->send($formRequest)
+            $this->apiSend($formRequest)
                 ->extractCsrfToken();
         }
         if (isset($this->lastRequest)) {
@@ -384,7 +385,7 @@ trait SugarCRMAware
             ] + $headers,
             http_build_query($data + ['csrf_token' => $this->getVar('csrf_token')])
         );
-        return $this->send($request, $options);
+        return $this->apiSend($request, $options);
     }
 
     /**
@@ -412,7 +413,56 @@ trait SugarCRMAware
             ] + $headers,
             json_encode($data)
         );
-        return $this->send($request, $options);
+        return $this->apiSend($request, $options);
+    }
+
+    /**
+     * Returns a plain Guzzle HTTP client for all SugarCRM API/form calls.
+     * Kept separate from getClient() so that headless-browser scenarios, which
+     * override initClient() to return a Chrome client, still perform REST API
+     * calls and form submissions over plain HTTP.
+     */
+    private function getApiClient(): GuzzleClient
+    {
+        static $apiClient = null;
+        if ($apiClient === null) {
+            $guzzle = new \GuzzleHttp\Client([
+                'base_uri' => $this->config->getBaseUri(),
+                'http_errors' => false,
+                'verify' => false,
+                'cookies' => true,
+            ]);
+            $apiClient = new GuzzleClient($guzzle);
+        }
+        return $apiClient;
+    }
+
+    /**
+     * Like Scenario::send() but always routes through the plain Guzzle client.
+     * Use this for all SugarCRM REST API and form-submission requests so they
+     * are never accidentally sent through the headless-browser Chrome client.
+     */
+    protected function apiSend(RequestInterface $request, array $options = []): self
+    {
+        $request = $this->initSession($request);
+        if (!empty($this->beforeRequest)) {
+            foreach ($this->beforeRequest as $beforeRequest) {
+                $beforeRequest($request, $options);
+            }
+        }
+        $this->lastRequest = $request;
+        $this->lastResponse = $this->getApiClient()->send($request, $options);
+        if (!empty($this->afterResponse)) {
+            foreach ($this->afterResponse as $afterResponse) {
+                $afterResponse($this->lastResponse);
+            }
+        }
+        return $this;
+    }
+
+    protected function apiGet(string $url, array $headers = [], array $options = []): self
+    {
+        return $this->apiSend(new Request('GET', $url, $headers), $options);
     }
 
     /**
@@ -420,7 +470,7 @@ trait SugarCRMAware
     protected function detectServerUrl(): void
     {
         $request = new Request('GET', 'cache/config.js');
-        $configResponse = $this->getClient()->send($request);
+        $configResponse = $this->getApiClient()->send($request);
         preg_match('~"serverUrl":"(.*?)"~is', (string)$configResponse->getBody(), $m);
         if (empty($m[1])) {
             throw new \RuntimeException('Cannot determine REST API version');
@@ -436,7 +486,7 @@ trait SugarCRMAware
     protected function detectSugarVersion(): void
     {
         $request = new Request('GET', 'sugar_version.json');
-        $sugarVersionResponse = $this->getClient()->send($request);
+        $sugarVersionResponse = $this->getApiClient()->send($request);
         $data = json_decode((string)$sugarVersionResponse->getBody(), true);
         if (empty($data['sugar_version'])) {
             throw new \RuntimeException('Cannot determine SugarCRM version');
@@ -501,7 +551,7 @@ trait SugarCRMAware
             $this
                 ->loginAs('admin')
                 ->bwcLogin()
-                ->get('index.php?module=Administration&action=LicenseSettings&bwcFrame=1')
+                ->apiGet('index.php?module=Administration&action=LicenseSettings&bwcFrame=1')
                 ->extractRegexp('licenseKey', '/name=\'license_key\'.*?value="(.*?)"/')
                 ->logout();
 
@@ -511,9 +561,7 @@ trait SugarCRMAware
         $subscriptionRequest = new Request('GET', 'https://authenticate.sugarcrm.com/rest/subscription/' . $this->config->getLicense());
 
         $this
-            ->send($subscriptionRequest, [
-                'chromeClientOptions' => new ChromeClientOptions(skipInterception: true),
-            ])
+            ->apiSend($subscriptionRequest)
             ->extract('subscriptionProduct', function (ResponseInterface $response) {
                 $data = json_decode((string)$response->getBody(), true);
 

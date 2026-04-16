@@ -14,7 +14,7 @@
     "php": ">=8.1",
     "ext-json": "*",
     "guzzlehttp/guzzle": "6.5.8",
-    "symfony/console": "^5",
+    "symfony/console": "^5|^6|^7",
     "ext-sockets": "*",
     "chrome-php/chrome": "1.10.x-dev"
   },
@@ -25,7 +25,8 @@
   },
   "require-dev": {
     "psalm/phar": "^4.10",
-    "phpunit/phpunit": "^9"
+    "phpunit/phpunit": "^10|^11",
+    "humbug/box": "^4.7"
   },
   "config": {
     "optimize-autoloader": true,

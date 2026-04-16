@@ -19,7 +19,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression Testing') // Optional
-    ->setVersion('0.2.7') // Optional
+    ->setVersion('0.2.8') // Optional
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
     ->addOption('tests_dir', 'd', InputOption::VALUE_OPTIONAL, 'The directory where your tests are placed', './tests')
     ->addOption('type', 't', InputOption::VALUE_OPTIONAL, 'Type of the test: "assessment" or "regression". Default - both')
@@ -30,6 +30,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('failed_scenarios', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
     ->addOption('failed_steps', null, InputOption::VALUE_NONE, 'Show last request/response for failed tests')
     ->addOption('licenses', 'l', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
+    ->addOption('browserless_url', null, InputOption::VALUE_OPTIONAL, 'WebSocket URL of a remote CDP endpoint, e.g. ws://browserless:3000 or wss://chrome.browserless.io?token=TOKEN')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
         $start = microtime(true);
         $type = $input->getOption('type');
@@ -50,6 +51,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $configParams = [
             'baseUri' => $input->getArgument('base_uri'),
         ];
+        if ($browserlessUrl = $input->getOption('browserless_url')) {
+            $configParams['browserlessUrl'] = $browserlessUrl;
+        }
         if ($credentials = $input->getOption('credentials')) {
             $loginPasswordPairs = [];
             foreach ($credentials as $credential) {

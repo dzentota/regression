@@ -104,13 +104,24 @@ class Chrome implements ClientInterface
             });
         $uri = UriResolver::resolve(Utils::uriFor($this->baseUri), $request->getUri());
 
-        // Assume that ANY alert dialog is an XSS
-        $page->addPreScript(
-            <<<'JS'
-            window.alert=function(){
-                document.documentElement.innerHTML = 'XSS!!! Detected';
+        // Allow self-signed / untrusted TLS certificates (e.g. mkcert in DDEV).
+        // Security.enable must be called first so the domain is active.
+        $page->getSession()->sendMessageSync(new Message('Security.enable'));
+        $page->getSession()->sendMessageSync(
+            new Message('Security.setIgnoreCertificateErrors', ['ignore' => true])
+        );
+
+        // Detect XSS via the CDP dialog event — fires for alert(), confirm(), and prompt().
+        // The dialog is dismissed immediately so it never blocks navigation.
+        $xssDetected = false;
+        $page->getSession()->on(
+            'method:Page.javascriptDialogOpening',
+            function (array $params) use ($page, &$xssDetected): void {
+                $xssDetected = true;
+                $page->getSession()->sendMessageSync(
+                    new Message('Page.handleJavaScriptDialog', ['accept' => false])
+                );
             }
-            JS
         );
 
         $page->navigate($uri)
@@ -118,8 +129,9 @@ class Chrome implements ClientInterface
                 $chromeClientOptions->pageLoadingStep,
                 $chromeClientOptions->pageLoadingTimeout,
             );
-        $response = new Response($statusCode, $responseHeaders, $this->isHtmlPage($responseHeaders) ?
-            $page->getHtml() : $content);
+
+        $body = $this->isHtmlPage($responseHeaders) ? $page->getHtml() : $content;
+        $response = new Response($statusCode, $responseHeaders, $xssDetected ? 'XSS!!! Detected' : $body);
 
         if (!$chromeClientOptions->leaveOpened) {
             $page->close();

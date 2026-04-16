@@ -1,10 +1,22 @@
 services:
-  cli:
-    container_name: cli
-    image: thecodingmachine/php:8.3-v4-cli-node10
+  # Headless Chrome as a service via browserless.io.
+  # Docs: https://docs.browserless.io/open-source/v1/docker
+  browserless:
+    container_name: browserless
+    image: browserless/chrome:latest
     environment:
-      PHP_EXTENSION_XDEBUG: 1
-      PHP_INI_XDEBUG__START_WITH_REQUEST: 'yes'
-      PHP_IDE_CONFIG: "serverName=Docker"
-    volumes:
-      - .:/usr/src/app:rw
+      # Set a token or use an empty string to disable auth for local dev.
+      TOKEN: ""
+      # Allow all domains to connect (dev only — restrict in production).
+      CORS: "true"
+    ports:
+      - "3000:3000"
+    # Join the DDEV global network so the headless browser can reach *.ddev.site
+    # hostnames (resolved by ddev-router on that network).
+    networks:
+      - default
+      - ddev_default
+
+networks:
+  ddev_default:
+    external: true

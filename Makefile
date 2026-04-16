@@ -1,4 +1,4 @@
 # To release a new version, e.g `0.1.2` run:
 # make release tag=0.1.2
 release:
-	box compile && git tag $(tag) && git push origin $(tag) && gpg -u webtota@gmail.com --detach-sign --output regression.phar.asc regression.phar
+	./vendor/bin/box compile && git tag $(tag) && git push origin $(tag) && gpg -u webtota@gmail.com --detach-sign --output regression.phar.asc regression.phar

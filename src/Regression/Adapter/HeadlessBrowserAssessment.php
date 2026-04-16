@@ -16,9 +16,7 @@ trait HeadlessBrowserAssessment
         } else {
             $content = (string)$this->lastResponse->getBody();
         }
-
         $result = false === strpos($content, 'XSS!!! Detected');
-
         return $this;
     }
 }

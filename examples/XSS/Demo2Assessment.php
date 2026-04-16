@@ -39,7 +39,7 @@ class Demo2Assessment extends SugarCRMAssessment
         );
 
         $this->send($request)
-            ->assumeNoXss($xss)
-            ->checkAssumptions('Found an XSS vulnerability', $xss);
+            ->assumeNoXss(null, $sanitized)
+            ->checkAssumptions('Found an XSS vulnerability', !$sanitized);
     }
 }
