@@ -56,24 +56,36 @@ class Chrome implements ClientInterface
 
         $responseHeaders = [];
 
-        $page->getSession()->on('method:Fetch.requestPaused', function (array $params) use ($page, $request): void {
-            $method = $request->getMethod();
-            $modifiedParams = [
-                'requestId' => $params['requestId'],
-                'method' => $method,
-            ];
+        // Network-level requestId of the main document; used to filter Network events
+        // so subrequest responses are never mistaken for the page response.
+        $mainDocumentNetworkId = null;
 
-            foreach (array_merge_recursive($params['request']['headers'], $request->getHeaders()) as $name => $value) {
-                $modifiedParams['headers'][] = [
-                    'name' => $name,
-                    'value' => is_string($value)
-                        ? $value
-                        : implode(', ', $value),
+        $page->getSession()->on('method:Fetch.requestPaused', function (array $params) use ($page, $request, &$mainDocumentNetworkId): void {
+            $isMainDocument = ($params['resourceType'] ?? '') === 'Document';
+
+            if ($isMainDocument) {
+                // Record the network-level ID so we can match Network.* events below.
+                $mainDocumentNetworkId = $params['networkId'] ?? null;
+
+                // Apply the caller's method / headers only to the main navigation.
+                $method = $request->getMethod();
+                $modifiedParams = [
+                    'requestId' => $params['requestId'],
+                    'method' => $method,
                 ];
-            }
-
-            if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
-                $modifiedParams['postData'] = base64_encode((string)$request->getBody());
+                foreach (array_merge_recursive($params['request']['headers'], $request->getHeaders()) as $name => $value) {
+                    $modifiedParams['headers'][] = [
+                        'name' => $name,
+                        'value' => is_string($value) ? $value : implode(', ', $value),
+                    ];
+                }
+                if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
+                    $modifiedParams['postData'] = base64_encode((string)$request->getBody());
+                }
+            } else {
+                // Pass subrequests through unmodified so page-internal XHR/fetch
+                // calls keep their original method and headers.
+                $modifiedParams = ['requestId' => $params['requestId']];
             }
 
             $page->getSession()->sendMessageSync(new Message('Fetch.continueRequest', $modifiedParams));
@@ -83,24 +95,27 @@ class Chrome implements ClientInterface
             $page->getSession()->sendMessage(new Message('Fetch.enable', ['patterns' => [['urlPattern' => '*']]]));
         }
 
-        $page->getSession()->once(
+        // Use on() (not once()) so we can filter by the main document's requestId.
+        $page->getSession()->on(
             'method:Network.responseReceivedExtraInfo',
-            function ($params) use (& $statusCode, & $responseHeaders) {
-                $statusCode = $params['statusCode'];
-                $responseHeaders = $this->sanitizeResponseHeaders($params['headers']);
+            function ($params) use (&$statusCode, &$responseHeaders, &$mainDocumentNetworkId) {
+                if ($mainDocumentNetworkId !== null && ($params['requestId'] ?? null) === $mainDocumentNetworkId) {
+                    $statusCode = $params['statusCode'];
+                    $responseHeaders = $this->sanitizeResponseHeaders($params['headers']);
+                }
             }
         );
 
         $content = '';
-        $page->getSession()->once(
+        $page->getSession()->on(
             'method:Network.loadingFinished',
-            function (array $params) use ($page, &$content): void {
-                $request_id = $params["requestId"] ?? null;
-                $data = $page->getSession()->sendMessageSync(
-                    new Message('Network.getResponseBody',
-                        ['requestId' => $request_id])
-                )->getData();
-                $content = $data["result"]["body"] ?? '';
+            function (array $params) use ($page, &$content, &$mainDocumentNetworkId): void {
+                if ($mainDocumentNetworkId !== null && ($params['requestId'] ?? null) === $mainDocumentNetworkId) {
+                    $data = $page->getSession()->sendMessageSync(
+                        new Message('Network.getResponseBody', ['requestId' => $params['requestId']])
+                    )->getData();
+                    $content = $data['result']['body'] ?? '';
+                }
             });
         $uri = UriResolver::resolve(Utils::uriFor($this->baseUri), $request->getUri());
 
@@ -142,7 +157,8 @@ class Chrome implements ClientInterface
 
     private function isHtmlPage(array $headers): bool
     {
-        return (isset($headers['Content-Type']) && $headers['Content-Type'] === 'text/html');
+        $contentType = $headers['Content-Type'] ?? $headers['content-type'] ?? '';
+        return str_starts_with($contentType, 'text/html');
     }
 
     /**

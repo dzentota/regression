@@ -99,6 +99,31 @@ trait HeadlessBrowser
         return $browserlessUrl;
     }
 
+    /**
+     * Logs into SugarCRM and injects the resulting PHP session cookie into all
+     * subsequent browser-based requests.
+     *
+     * Calls loginAs() + bwcLogin() (both from SugarCRMAware) to obtain a
+     * PHPSESSID, then switches the active session to a CookieSession so that
+     * Scenario::send() will include "Cookie: PHPSESSID=…" in every request.
+     * Chrome.php's Fetch.requestPaused handler forwards that header to the
+     * browser, giving the page a valid authenticated PHP session.
+     *
+     * Requires SugarCRMAware to be used by the same class.
+     */
+    public function loginAsBrowser(string $username): self
+    {
+        $this->loginAs($username)->bwcLogin();
+
+        if (!preg_match('/PHPSESSID=([^;]+)/', $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
+            throw new \RuntimeException('PHPSESSID not found in bwcLogin response');
+        }
+
+        $this->session = new \Regression\CookieSession('PHPSESSID=' . $m[1]);
+
+        return $this;
+    }
+
     protected function initClient(): ClientInterface
     {
         $options = $this->initBrowser();
