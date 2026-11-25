@@ -27,6 +27,9 @@ trait SugarCRMAware
 
     protected static string $subscriptionProduct;
 
+    /** @var string[]|null license types available on the instance (GET /me as admin: current_user.licenses) */
+    protected static ?array $instanceLicenses = null;
+
     private static bool $serverInfoReceived = false;
     private static bool $licenseUpdated = false;
 
@@ -53,6 +56,7 @@ trait SugarCRMAware
             $this->detectServerUrl();
             $this->detectSugarVersion();
             $this->detectSugarSubscription();
+            $this->detectInstanceLicenses();
 
             static::$serverInfoReceived = true;
         }
@@ -610,7 +614,39 @@ trait SugarCRMAware
     public function shouldBeExecuted(): bool
     {
         return (is_null($this->minVersion) || self::$sugarVersion['sugar_version'] >= $this->minVersion)
-            && (is_null($this->maxVersion) || self::$sugarVersion['sugar_version'] <= $this->maxVersion);
+            && (is_null($this->maxVersion) || self::$sugarVersion['sugar_version'] <= $this->maxVersion)
+            && $this->hasRequiredLicense();
+    }
+
+    /**
+     * @return string[] license types available on the instance, e.g. SUGAR_SELL, SUGAR_SERVE, CURRENT
+     */
+    public function getInstanceLicenses(): array
+    {
+        return static::$instanceLicenses ?? [];
+    }
+
+    public function hasLicense(string ...$licenses): bool
+    {
+        return (bool)array_intersect($licenses, $this->getInstanceLicenses());
+    }
+
+    private function hasRequiredLicense(): bool
+    {
+        foreach ((new \ReflectionClass($this))->getAttributes(\Regression\Attribute\RequiresLicense::class) as $attribute) {
+            if (!$this->hasLicense(...$attribute->newInstance()->licenses)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    protected function detectInstanceLicenses(): void
+    {
+        $this->asAdmin(function () {
+            $this->apiCall('/me');
+            static::$instanceLicenses = (array)($this->json()['current_user']['licenses'] ?? []);
+        });
     }
 
     public function createRole(Role $role): self
