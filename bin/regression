@@ -45,6 +45,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('failed_scenarios', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
     ->addOption('failed_steps', null, InputOption::VALUE_NONE, 'Show last request/response for failed tests')
     ->addOption('licenses', 'l', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
+    ->addOption('keep-data', null, InputOption::VALUE_NONE, 'Do not run cleanups/tearDown (leave created data for debugging)')
+    ->addOption('run-id', null, InputOption::VALUE_REQUIRED, 'Identifier used to tag data created by this run (default: random)')
+    ->addOption('slowest', null, InputOption::VALUE_REQUIRED, 'Show N slowest scenarios', '10')
     ->setCode(function (InputInterface $input, OutputInterface $output) {
         $start = microtime(true);
         $type = $input->getOption('type');
@@ -64,6 +67,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $licenses = $input->getOption('licenses') ?: [Config::DEFAULT_LICENSE];
         $configParams = [
             'baseUri' => $input->getArgument('base_uri'),
+            'keepData' => (bool)$input->getOption('keep-data'),
+            'runId' => $input->getOption('run-id'),
         ];
         if ($credentials = $input->getOption('credentials')) {
             $loginPasswordPairs = [];
@@ -84,6 +89,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $skipped = 0;
             $regressions = [];
             $vulnerabilities = [];
+            $cleanupErrors = [];
+            $durations = [];
 
             $io = new SymfonyStyle($input, $output);
             $io->title('Running Regression Tests for license ' . $license . '...');
@@ -151,13 +158,14 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
                 $scenarioFailed = false;
                 $testsCount++;
+                $scenarioStart = microtime(true);
                 try {
                     if ($isDebug || $isFailedScenarios || $isFailedSteps) {
                         $io->title($scenario->getDescription());
                     }
                     $scenario
                         ->applyLicense()
-                        ->run();
+                        ->execute();
                     if ($scenario->getStatus() === Status::UNKNOWN) {
                         $scenarioFailed = true;
                         $io->error("Risky. No expectations or assumptions made: {$scenario->getDescription()}");
@@ -177,6 +185,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                     $scenarioFailed = true;
                     $failed++;
                 } finally {
+                    $durations[$scenario->getDescription()] = microtime(true) - $scenarioStart;
+                    foreach ($scenario->getCleanupErrors() as $cleanupError) {
+                        $cleanupErrors[] = sprintf('%s: %s', $scenario->getDescription(), $cleanupError);
+                    }
                     if ($isFailedScenarios || $isFailedSteps) {
                         if ($scenarioFailed) {
                             $io->error('FAILED');
@@ -195,6 +207,20 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $io->horizontalTable(['Total', 'Success', 'Issues', 'Skipped'], [
                 [$testsCount, $success, $failed, $skipped]
             ]);
+            if (!empty($cleanupErrors)) {
+                $io->warning('Cleanup problems (data may be left on the instance; run ID ' . $config->getRunId() . ')');
+                $io->listing($cleanupErrors);
+            }
+            $slowest = (int)$input->getOption('slowest');
+            if ($slowest > 0 && !empty($durations)) {
+                arsort($durations);
+                $rows = [];
+                foreach (array_slice($durations, 0, $slowest, true) as $name => $seconds) {
+                    $rows[] = [sprintf('%.1fs', $seconds), mb_strimwidth($name, 0, 100, '...')];
+                }
+                $io->section("Slowest $slowest scenarios");
+                $io->table(['Time', 'Scenario'], $rows);
+            }
             if ($failed === 0) {
                 $io->success('No issues found');
             }

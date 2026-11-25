@@ -55,6 +55,17 @@ abstract class Scenario
     protected ?string $conclusion;
 
     /**
+     * Cleanup callbacks registered with defer(), executed LIFO after run().
+     * @var array<int, array{0: callable, 1: string}>
+     */
+    private array $cleanups = [];
+
+    /**
+     * @var string[] errors raised by cleanup callbacks / tearDown()
+     */
+    private array $cleanupErrors = [];
+
+    /**
      * Scenario constructor.
      */
     public function __construct(protected Config $config)
@@ -117,6 +128,87 @@ abstract class Scenario
     abstract public function getDescription(): string;
 
     abstract public function run(): void;
+
+    /**
+     * Prepare state required by the scenario. Runs before run().
+     */
+    protected function setUp(): void
+    {
+    }
+
+    /**
+     * Revert state changed by the scenario. Always runs after run(),
+     * after the callbacks registered with defer(), even if run() failed.
+     */
+    protected function tearDown(): void
+    {
+    }
+
+    /**
+     * Register a cleanup callback. Callbacks run in reverse order of registration
+     * after run(), regardless of its outcome. Exceptions are collected, not rethrown.
+     */
+    public function defer(callable $cleanup, string $label = 'cleanup'): static
+    {
+        $this->cleanups[] = [$cleanup, $label];
+        return $this;
+    }
+
+    /**
+     * Full lifecycle: setUp() -> run() -> deferred cleanups -> tearDown().
+     */
+    public function execute(): void
+    {
+        try {
+            $this->setUp();
+            $this->run();
+        } finally {
+            $this->cleanup();
+        }
+    }
+
+    protected function cleanup(): void
+    {
+        $cleanups = array_reverse($this->cleanups);
+        $this->cleanups = [];
+        if ($this->config->get('keepData', false)) {
+            return;
+        }
+        $cleanups[] = [fn() => $this->tearDown(), 'tearDown'];
+        // Cleanup must not influence the scenario's outcome or what is reported for it.
+        $state = [$this->status, $this->conclusion ?? null, $this->vars, $this->lastRequest ?? null, $this->lastResponse ?? null];
+        foreach ($cleanups as [$callback, $label]) {
+            try {
+                $callback();
+            } catch (\Throwable $e) {
+                $this->cleanupErrors[] = "$label: " . $e->getMessage();
+            }
+        }
+        [$this->status, $this->conclusion, $this->vars] = $state;
+        if ($state[3] !== null) {
+            $this->lastRequest = $state[3];
+        }
+        if ($state[4] !== null) {
+            $this->lastResponse = $state[4];
+        }
+    }
+
+    /**
+     * @return string[]
+     */
+    public function getCleanupErrors(): array
+    {
+        return $this->cleanupErrors;
+    }
+
+    /**
+     * Name unique for this run, so parallel/repeated runs don't collide.
+     */
+    public function uniqueName(string $base): string
+    {
+        static $counter = 0;
+        return sprintf('%s_%s_%d', $base, $this->config->getRunId(), ++$counter);
+    }
 
     public function getClassification(): Classification
     {

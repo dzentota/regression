@@ -28,6 +28,15 @@ trait SugarCRMAware
     private static bool $serverInfoReceived = false;
     private static bool $licenseUpdated = false;
 
+    /** @var array{0: string, 1: string}|null [username, password] of the current session */
+    protected ?array $currentUser = null;
+
+    /** session object created by the last login(); any other session (portal, logout...) is unknown */
+    private ?object $currentUserSession = null;
+
+    /** @var array<string, true> users whose preferences were already snapshotted */
+    private array $preferencesSnapshotted = [];
+
     protected ?string $minVersion = null;
     protected ?string $maxVersion = null;
 
@@ -90,6 +99,8 @@ trait SugarCRMAware
             throw new \RuntimeException("Login failed");
         }
         $this->session = new SugarSession($token);
+        $this->currentUser = [$username, $password];
+        $this->currentUserSession = $this->session;
         return $this;
     }
 
@@ -404,6 +415,12 @@ trait SugarCRMAware
         array  $options = []
     ): self
     {
+        $method = strtoupper($method);
+        $path = parse_url($endpoint, PHP_URL_PATH) ?? $endpoint;
+        if ($method === 'PUT' && rtrim($path, '/') === '/me/preferences') {
+            $this->snapshotPreferences();
+        }
+
         $request = new Request(
             $method,
             $this->prependBase($endpoint),
@@ -412,7 +429,123 @@ trait SugarCRMAware
             ] + $headers,
             json_encode($data)
         );
-        return $this->send($request, $options);
+        $this->send($request, $options);
+
+        if ($method === 'POST') {
+            $this->trackCreatedRecords($path);
+        }
+        return $this;
+    }
+
+    /**
+     * Run cleanup requests as the given user (admin by default); re-logs in only when needed.
+     */
+    public function cleanupAs(string $username = 'admin'): self
+    {
+        if (!$this->isLoggedInAs($username)) {
+            // Fresh client (empty cookie jar): the scenario may have left portal/BWC cookies behind.
+            $this->client = $this->initClient();
+            $this->session = null;
+            $this->loginAs($username);
+        }
+        return $this;
+    }
+
+    protected function isLoggedInAs(string $username): bool
+    {
+        return $this->currentUser !== null
+            && $this->currentUser[0] === $username
+            && isset($this->session)
+            && $this->session === $this->currentUserSession;
+    }
+
+    /**
+     * Records created via REST (POST /<Module> or POST /<Module>/<id>/link/<rel>) are deleted after the scenario.
+     */
+    protected function trackCreatedRecords(string $path): void
+    {
+        if ($this->getLastResponse()->getStatusCode() !== 200) {
+            return;
+        }
+        $isCreate = (bool)preg_match('~^/[A-Z][A-Za-z0-9_]*/?$~', $path);
+        $isLink = (bool)preg_match('~^/[A-Z][A-Za-z0-9_]*/[^/]+/link/[^/]+/?$~', $path);
+        if (!$isCreate && !$isLink) {
+            return;
+        }
+        $stream = $this->getLastResponse()->getBody();
+        $body = json_decode((string)$stream, true);
+        // Leave the stream as we found it: scenarios often read it with getContents().
+        if ($stream->isSeekable()) {
+            $stream->rewind();
+        }
+        if (!is_array($body)) {
+            return;
+        }
+        $record = $isCreate ? $body : ($body['related_record'] ?? null);
+        if (empty($record['id']) || empty($record['_module'])) {
+            return;
+        }
+        $this->deferDelete($record['_module'], $record['id']);
+    }
+
+    public function deferDelete(string $module, string $id): self
+    {
+        return $this->defer(function () use ($module, $id) {
+            $this->cleanupAs('admin')->apiCall("/$module/$id", 'DELETE');
+            $status = $this->getLastResponse()->getStatusCode();
+            if ($status === 200 || $status === 404) {
+                return;
+            }
+            // Legacy (BWC) modules may not support REST deletion: fall back to the classic UI action.
+            try {
+                $this->bwcLogin();
+            } catch (\RuntimeException) {
+                // A BWC session (PHPSESSID cookie) already exists for this client: reuse it.
+            }
+            $this->submitForm(
+                'index.php',
+                ['module' => $module, 'action' => 'Delete', 'record' => $id],
+                "index.php?module=$module&action=DetailView&record=" . rawurlencode($id),
+            );
+            $bwcStatus = $this->getLastResponse()->getStatusCode();
+            $this->apiCall("/$module/$id");
+            if ($this->getLastResponse()->getStatusCode() !== 404) {
+                throw new \RuntimeException(
+                    "record still exists: REST DELETE returned $status, BWC Delete returned $bwcStatus"
+                );
+            }
+        }, "delete $module/$id");
+    }
+
+    /**
+     * Saves the current user's preferences before the first PUT /me/preferences and restores them afterwards.
+     */
+    protected function snapshotPreferences(): void
+    {
+        if ($this->currentUser === null) {
+            return;
+        }
+        [$username, $password] = $this->currentUser;
+        if (isset($this->preferencesSnapshotted[$username])) {
+            return;
+        }
+        $this->preferencesSnapshotted[$username] = true;
+        $this->send(new Request('GET', $this->prependBase('/me/preferences')));
+        $snapshot = json_decode((string)$this->getLastResponse()->getBody(), true);
+        if ($this->getLastResponse()->getStatusCode() !== 200 || !is_array($snapshot)) {
+            return;
+        }
+        $this->defer(function () use ($username, $password, $snapshot) {
+            if (!$this->isLoggedInAs($username)) {
+                $this->client = $this->initClient();
+                $this->session = null;
+                $this->login($username, $password);
+            }
+            $this->apiCall('/me/preferences', 'PUT', $snapshot);
+            if ($this->getLastResponse()->getStatusCode() !== 200) {
+                throw new \RuntimeException('restore returned ' . $this->getLastResponse()->getStatusCode());
+            }
+        }, "restore preferences of $username");
     }
 
     /**
@@ -464,6 +597,9 @@ trait SugarCRMAware
             )
             ->extractRegexp('roleId', '/<input type="hidden" name="record" value="(.*?)"/');
         $role->setId($this->getVar('roleId'));
+        if (!empty($role->getId())) {
+            $this->deferDelete('ACLRoles', $role->getId());
+        }
         $guids = [];
         foreach ($role->getPermissions() as $modulePermissions) {
             $guids = array_merge($guids, $this->prepareACLFormData($modulePermissions));

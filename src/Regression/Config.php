@@ -43,6 +43,17 @@ final class Config
         return $this->data['license'];
     }
 
+    /**
+     * Identifier of the current suite run; used to tag data created by scenarios.
+     */
+    public function getRunId(): string
+    {
+        if (empty($this->data['runId'])) {
+            $this->data['runId'] = 'rg' . bin2hex(random_bytes(3));
+        }
+        return $this->data['runId'];
+    }
+
     public function getUserPassword(string $username, $default = null): ?string
     {
         return $this->data['credentials'][$username] ?? $default;
