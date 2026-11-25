@@ -19,6 +19,7 @@
     },
     "autoload": {
         "psr-4": {
+            "Regression\\Adapter\\Sugarcrm\\": "src/Regression/Adapter/SugarCRM/",
             "Regression\\": "src/Regression/"
         }
     },

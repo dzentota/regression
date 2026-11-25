@@ -16,11 +16,11 @@ use Regression\Helpers\Client\ChromeClientOptions;
 use Regression\Helpers\MLPBuilder;
 use Regression\RegressionException;
 use Regression\SugarSession;
-use Regression\Adapter\Sugarcrm\Role;
+use Regression\Adapter\SugarCRM\Role;
 
 trait SugarCRMAware
 {
-    use \Regression\Adapter\Sugarcrm\ManagesUsers;
+    use \Regression\Adapter\SugarCRM\ManagesUsers;
 
     protected static string $serverUrl;
     protected static array $sugarVersion;

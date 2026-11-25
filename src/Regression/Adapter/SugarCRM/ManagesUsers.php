@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Regression\Adapter\Sugarcrm;
+namespace Regression\Adapter\SugarCRM;
 
 /**
  * Per-scenario users, so ACL tests don't collide on shared demo users' roles/teams.

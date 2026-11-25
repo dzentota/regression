@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Regression\Adapter\Sugarcrm;
+namespace Regression\Adapter\SugarCRM;
 
 enum Module: string
 {

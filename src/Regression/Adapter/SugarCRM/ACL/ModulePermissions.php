@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Regression\Adapter\SugarCRM\ACL;
 
-use Regression\Adapter\Sugarcrm\Module;
+use Regression\Adapter\SugarCRM\Module;
 
 final class ModulePermissions
 {
