@@ -2,7 +2,6 @@
 
 namespace Regression\Helpers\Client;
 
-use HeadlessChromium\Page;
 
 /**
  * @property bool $leaveOpened
@@ -14,7 +13,7 @@ class ChromeClientOptions
 {
     public function __construct(
         public bool $leaveOpened = false,
-        public string $pageLoadingStep = Page::LOAD,
+        public string $pageLoadingStep = 'load', // HeadlessChromium\Page::LOAD (chrome-php is optional)
         public ?int $pageLoadingTimeout = null,
         public bool $skipInterception = false
     ) {
