@@ -1,7 +1,22 @@
 #!/usr/bin/env php
 <?php
 error_reporting(E_ALL & ~E_DEPRECATED);
-require dirname(__DIR__) . '/vendor/autoload.php';
+(static function (): void {
+    // Composer >= 2.2 exposes the autoloader path to bin proxies.
+    $candidates = [
+        $GLOBALS['_composer_autoload_path'] ?? null,
+        dirname(__DIR__) . '/vendor/autoload.php',       // standalone checkout / phar
+        dirname(__DIR__, 3) . '/autoload.php',           // installed as vendor/<org>/regression
+    ];
+    foreach ($candidates as $file) {
+        if ($file !== null && is_file($file)) {
+            require $file;
+            return;
+        }
+    }
+    fwrite(STDERR, "Cannot find Composer autoloader. Run `composer install`.\n");
+    exit(1);
+})();
 
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;

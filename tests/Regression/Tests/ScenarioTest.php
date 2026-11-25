@@ -24,7 +24,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
 
         $callback = $this->createMock(Callback::class);
         $callback->expects($this->once())
@@ -51,7 +52,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $scenario->expectSubstring($responseText);
     }
@@ -66,7 +68,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $scenario->expectSubstring('non-existed text');
@@ -82,7 +85,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $exceptionMessage = 'where is my text?';
@@ -100,7 +104,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $scenario->expectRegexp('/Text$/is');
     }
@@ -115,7 +120,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $scenario->expectRegexp('/message/is');
@@ -131,7 +137,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $exceptionMessage = 'Regular expression rocks';
@@ -149,7 +156,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $scenario->expect(function (Response $response) use ($responseText) {
             return (string)$response->getBody() === $responseText;
@@ -166,7 +174,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $scenario->expect(function (Response $response) use ($responseText) {
@@ -184,7 +193,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $exceptionMessage = 'My callback deserves more!';
@@ -204,7 +214,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $scenario->extractRegexp('hello', '/^([a-z]+)\s+([a-z]+)/s');
         $scenario->extractRegexp('world', '/^([a-z]+)\s+([a-z]+)/s', 2);
@@ -222,7 +233,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $scenario->extractRegexp('foo', '/foobar/s');
@@ -238,7 +250,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $exceptionMessage = "Oops. Regexp doesn't match";
@@ -256,7 +269,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $scenario->extract('secret', function (ResponseInterface $response) {
             return str_replace('This is a ', '', (string) $response->getBody());
@@ -274,7 +288,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $scenario->extract('position', function (ResponseInterface $response) {
@@ -292,7 +307,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $exceptionMessage = 'The position of "world" is not found';
@@ -312,7 +328,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $scenario->expectStatusCode($status);
     }
@@ -327,7 +344,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $scenario->expectStatusCode(200);
@@ -343,7 +361,8 @@ final class ScenarioTest extends TestCase
             ->method('send')
             ->will($this->returnValue($response));
 
-        $scenario = $this->getMockForAbstractClass(Scenario::class, [$client]);
+        $scenario = $this->getMockForAbstractClass(Scenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request);
         $this->expectException(RegressionException::class);
         $scenario->expectStatusCode(200);

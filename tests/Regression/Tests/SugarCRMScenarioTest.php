@@ -34,7 +34,9 @@ HTML;
         $client->expects($this->once())
             ->method('send')
             ->will($this->returnValue($response));
-        $scenario = $this->getMockForAbstractClass(SugarCRMScenario::class, [$client]);
+        (new \ReflectionProperty(\Regression\SugarCRMScenario::class, "serverInfoReceived"))->setValue(null, true);
+        $scenario = $this->getMockForAbstractClass(SugarCRMScenario::class, [\Regression\Config::create(["baseUri" => "https://example.com"])]);
+        $scenario->setClient(new \Regression\Client\Guzzle($client));
         $scenario->send($request)
             ->extractCsrfToken();
         $this->assertEquals($token, $scenario->getVar('csrf_token'));
@@ -44,7 +46,7 @@ HTML;
 
 class ClientMock extends Client
 {
-    public function get($uri)
+    public function get($uri, array $options = []): \Psr\Http\Message\ResponseInterface
     {
         return new Response(200, [], '{"serverUrl":"rest\/v11_15","siteUrl":""}');
     }

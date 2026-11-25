@@ -1,36 +1,43 @@
 {
-  "name": "dzentota/regression",
-  "description": "Regression testing framework",
-  "type": "library",
-  "license": "mit",
-  "authors": [
-    {
-      "name": "Alex Tatulchenkov",
-      "email": "webtota@gmail.com"
-    }
-  ],
-  "minimum-stability": "dev",
-  "require": {
-    "php": ">=8.1",
-    "ext-json": "*",
-    "guzzlehttp/guzzle": "6.5.8",
-    "symfony/console": "^5",
-    "ext-sockets": "*",
-    "chrome-php/chrome": "1.10.x-dev"
-  },
-  "autoload": {
-    "psr-0": {
-      "Regression": "src/"
-    }
-  },
-  "require-dev": {
-    "psalm/phar": "^4.10",
-    "phpunit/phpunit": "^9"
-  },
-  "config": {
-    "optimize-autoloader": true,
-    "platform": {
-      "php": "8.2"
-    }
-  }
+    "name": "dzentota/regression",
+    "description": "Regression testing framework",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Alex Tatulchenkov",
+            "email": "webtota@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "ext-json": "*",
+        "ext-sockets": "*",
+        "guzzlehttp/guzzle": "^7.4",
+        "symfony/console": "^5.4|^6|^7",
+        "chrome-php/chrome": "^1.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "Regression\\": "src/Regression/"
+        }
+    },
+    "require-dev": {
+        "psalm/phar": "^4.10",
+        "phpunit/phpunit": "^9"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "platform": {
+            "php": "8.2"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Regression\\Tests\\": "tests/Regression/Tests/"
+        }
+    },
+    "bin": [
+        "bin/regression"
+    ]
 }
