@@ -1,6 +1,6 @@
 {
-    "name": "dzentota/regression",
-    "description": "Regression testing framework",
+    "name": "sugarcrm/regression",
+    "description": "Security regression testing framework for SugarAI instances",
     "type": "library",
     "license": "MIT",
     "authors": [

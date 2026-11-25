@@ -23,6 +23,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 (new SingleCommandApplication())
     ->setName('Regression API platforms')
+    ->setVersion(\Regression\Version::VERSION)
     ->setDescription('Manage the per-worker API platforms required by `regression --parallel N`')
     ->addArgument('action', InputArgument::REQUIRED, 'install | uninstall | status')
     ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')

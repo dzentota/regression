@@ -1,4 +1,4 @@
-The simple PHP regression testing framework.
+Security regression testing framework for SugarAI (and any HTTP application).
 
 ## Building PHAR
 
@@ -11,37 +11,112 @@ box build
 
 ## Installation
 
-### Use `phive` https://phar.io/
-> phive install dzentota/regression
+As a Composer dev dependency (recommended):
 
-or add dzentota/regression to .phive/phars.xml e.g
-
-```xml
-<?xml version="1.0"?>
-<phive xmlns="https://phar.io/phive">
-  <phar name="dzentota/regression" version="^0.2.4" installed="0.1.0" location="./vendor/bin/regression.phar" copy="true"/>
-</phive>
 ```
+composer require --dev sugarcrm/regression:^0.3
+```
+
+This provides `vendor/bin/regression` and `vendor/bin/regression-platforms`.
+
+The phar is still attached to releases (unsigned). With phive: `phive install --force-accept-unsigned sugarcrm/regression`.
+
+> Upgrading from `dzentota/regression` 0.2.x: the package was renamed. 0.3.0 requires Guzzle 7, runs
+> `setUp()`/`tearDown()` and cleans up the data scenarios create (see below).
 
 ## Usage
 
-> regression.phar [options] [--] <base_uri>
+```
+vendor/bin/regression <base_uri> -d tests/security -c admin:<password> [-c sally:<password> ...]
+```
+
+Common options (`--help` for all):
+
+| Option | Purpose |
+|---|---|
+| `-d`, `-f`, `-t` | tests directory / single files / `regression` or `assessment` only |
+| `-c user:password` | credentials (default: `admin:asdf`, other users: password = user name) |
+| `-p N` | run on N parallel workers (see [Parallel runs](#parallel-runs)) |
+| `--failed_steps`, `--failed_scenarios`, `--debug` | request/response output |
+| `--report-json FILE` | machine-readable results, including per-test outcome and duration |
+| `--timings FILE` | previous report: run the longest scenarios first |
+| `--keep-data` | don't run cleanups (debugging) |
+| `--run-id ID` | tag for data created by the run (default: random) |
+| `--timeout S` | HTTP request timeout (default 120) |
+| `--user-pool user:password` | pre-provisioned users for `createUser()` on IdM instances |
+| `-l LICENSE_KEY` | apply license key(s) before running |
+
+## Isolation and cleanup
+
+Every scenario runs `setUp()` → `run()` → deferred cleanups (LIFO) → `tearDown()`. Cleanups and
+`tearDown()` always run, even when the scenario fails; their errors are reported as warnings with the
+run ID and never change the scenario's outcome.
+
+```php
+protected function setUp(): void { /* prepare state */ }
+protected function tearDown(): void { /* revert state */ }
+
+$this->defer(fn() => $this->cleanupAs('admin')->apiCall("/Foo/$id", 'DELETE'), 'delete Foo');
+$name = $this->uniqueName('account'); // account_<runId>_<pid>_<n>
+```
+
+Done automatically for SugarAI scenarios:
+
+- records created via REST (`POST /<Module>`, `POST /<Module>/<id>/link/<rel>`) are deleted as admin
+  (falling back to the BWC Delete action),
+- ACL roles created with `createRole()` are deleted (`deferDelete('ACLRoles', $id)` for others),
+- the first `PUT /me/preferences` of a user snapshots their preferences and restores them afterwards.
+
+### Dedicated users
+
+Don't change roles, teams or preferences of shared demo users: other scenarios use them too.
+
+```php
+$user = $this->createUser(roles: [$role], like: 'sally'); // copies sally's teams, manager, licenses
+$this->loginAs($user);
+$id = $this->getUserId($user);
+$admin = $this->createUser(isAdmin: true);
+```
+
+Users are created via `POST /Users` and deleted after the scenario. On IdM instances (detected the same
+way `login()` does) users can't be created locally: pass pre-provisioned users with `--user-pool`;
+roles/teams/manager applied to them are reverted afterwards.
+
+### Licenses
+
+```php
+#[RequiresLicense('SUGAR_SERVE')]   // skipped unless the instance has one of the listed license types
+```
+
+`$this->hasLicense('SUGAR_SELL')` / `getInstanceLicenses()` for conditional logic.
+
+## Parallel runs
+
+Sugar keeps one OAuth token per user and API platform, so each worker logs in on its own platform
+(`regression_w<k>`). Install them once per instance:
 
 ```
-Arguments:
-
-base_uri                     The base uri of your application
-
-Options:
--d, --tests_dir[=TESTS_DIR]  The directory where your tests are placed [default: "./tests"]
---debug                      Show detailed info about requests and responses
--h, --help                   Display help for the given command. When no command is given display help for the ./bin/regression command
--q, --quiet                  Do not output any message
--V, --version                Display this application version
---ansi|--no-ansi             Force (or disable --no-ansi) ANSI output
--n, --no-interaction         Do not ask any interactive question
--v|vv|vvv, --verbose         Increase the verbosity of messages: 1 for normal output, 2 for more verbose output and 3 for debug
+vendor/bin/regression-platforms install <base_uri> -c admin:<password> -w 8   # also: status, uninstall
+vendor/bin/regression <base_uri> -d tests/security -c admin:<password> -p 4
 ```
+
+Scenarios are scheduled by resource locks detected from their source:
+
+- logging in as a user is a read lock on that user; assigning roles to it or changing its preferences is
+  a write lock,
+- package installs, workflows, global configuration and live Studio changes make a scenario exclusive:
+  exclusive scenarios run at the end, alone,
+- explicit markers override detection:
+
+```php
+#[Exclusive('installs a package')]   // nothing else runs at the same time
+#[Uses('packages')]                  // never together with other scenarios using 'packages'
+#[Parallel]                          // not exclusive despite what auto-detection thinks
+```
+
+Scenarios failing while others ran concurrently are re-run alone; if they pass, they're reported as
+undetected interference so that the culprit can be marked.
+
 ## Documentation
 
 To write a regression test:
