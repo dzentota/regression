@@ -1,0 +1,76 @@
+#!/usr/bin/env php
+<?php
+error_reporting(E_ALL & ~E_DEPRECATED);
+(static function (): void {
+    foreach ([$GLOBALS['_composer_autoload_path'] ?? null, dirname(__DIR__) . '/vendor/autoload.php', dirname(__DIR__, 3) . '/autoload.php'] as $file) {
+        if ($file !== null && is_file($file)) {
+            require $file;
+            return;
+        }
+    }
+    fwrite(STDERR, "Cannot find Composer autoloader. Run `composer install`.\n");
+    exit(1);
+})();
+
+use Regression\Config;
+use Regression\Runner\SugarAdminClient;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\SingleCommandApplication;
+use Symfony\Component\Console\Style\SymfonyStyle;
+
+(new SingleCommandApplication())
+    ->setName('Regression API platforms')
+    ->setDescription('Manage the per-worker API platforms required by `regression --parallel N`')
+    ->addArgument('action', InputArgument::REQUIRED, 'install | uninstall | status')
+    ->addArgument('base_uri', InputArgument::REQUIRED, 'The base uri of your application')
+    ->addOption('workers', 'w', InputOption::VALUE_REQUIRED, 'Number of worker platforms to install', '8')
+    ->addOption('credentials', 'c', InputOption::VALUE_OPTIONAL | InputOption::VALUE_IS_ARRAY, 'Credentials. Colon-separated username+password')
+    ->setCode(function (InputInterface $input, OutputInterface $output) {
+        $io = new SymfonyStyle($input, $output);
+        $credentials = [];
+        foreach ($input->getOption('credentials') ?: [] as $credential) {
+            [$login, $password] = explode(':', $credential, 2);
+            $credentials[$login] = $password;
+        }
+        $config = Config::create([
+            'baseUri' => $input->getArgument('base_uri'),
+            'credentials' => $credentials,
+            'license' => Config::DEFAULT_LICENSE,
+        ]);
+        $admin = new SugarAdminClient($config);
+        $existing = $admin->getCustomApiPlatforms();
+        $ours = array_values(array_filter($existing, fn($p) => preg_match('/^regression_w\d+$/', $p)));
+        $others = array_values(array_diff($existing, $ours));
+
+        switch ($input->getArgument('action')) {
+            case 'status':
+                $io->listing($ours ?: ['(none)']);
+                return 0;
+            case 'install':
+                $wanted = array_map([SugarAdminClient::class, 'workerPlatform'], range(1, max(1, (int)$input->getOption('workers'))));
+                $missing = array_diff($wanted, $ours);
+                if (empty($missing)) {
+                    $io->success(count($wanted) . ' worker platforms already installed');
+                    return 0;
+                }
+                $admin->saveCustomApiPlatforms(array_values(array_unique([...$others, ...$ours, ...$wanted])));
+                break;
+            case 'uninstall':
+                if (empty($ours)) {
+                    $io->success('Nothing to uninstall');
+                    return 0;
+                }
+                $admin->saveCustomApiPlatforms($others);
+                break;
+            default:
+                $io->error('Unknown action, expected install | uninstall | status');
+                return 1;
+        }
+        $now = array_filter((new SugarAdminClient($config))->getCustomApiPlatforms(), fn($p) => preg_match('/^regression_w\d+$/', $p));
+        $io->success('Worker platforms: ' . (implode(', ', $now) ?: '(none)'));
+        return 0;
+    })
+    ->run();

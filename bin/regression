@@ -45,6 +45,13 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('failed_scenarios', null, InputOption::VALUE_NONE, 'Show detailed info about requests and responses for failed tests')
     ->addOption('failed_steps', null, InputOption::VALUE_NONE, 'Show last request/response for failed tests')
     ->addOption('licenses', 'l', InputOption::VALUE_OPTIONAL|InputOption::VALUE_IS_ARRAY, 'Array of Sugar licences for which tests should be executed')
+    ->addOption('parallel', 'p', InputOption::VALUE_REQUIRED, 'Run with N worker processes (requires `regression-platforms install -w N`)', '1')
+    ->addOption('platform', null, InputOption::VALUE_REQUIRED, 'API platform for logins (set per worker by --parallel)', 'base')
+    ->addOption('report-json', null, InputOption::VALUE_REQUIRED, 'Write machine-readable results to this file')
+    ->addOption('skip-license-update', null, InputOption::VALUE_NONE, 'Assume the license is already applied (used by --parallel workers)')
+    ->addOption('user-pool', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Pre-provisioned users (user:password) used by createUser() when users cannot be created (IdM)')
+    ->addOption('worker', null, InputOption::VALUE_REQUIRED, 'Worker index (set by --parallel)', '1')
+    ->addOption('workers', null, InputOption::VALUE_REQUIRED, 'Number of workers (set by --parallel)', '1')
     ->addOption('keep-data', null, InputOption::VALUE_NONE, 'Do not run cleanups/tearDown (leave created data for debugging)')
     ->addOption('run-id', null, InputOption::VALUE_REQUIRED, 'Identifier used to tag data created by this run (default: random)')
     ->addOption('slowest', null, InputOption::VALUE_REQUIRED, 'Show N slowest scenarios', '10')
@@ -65,10 +72,32 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         }
 
         $licenses = $input->getOption('licenses') ?: [Config::DEFAULT_LICENSE];
+
+        if ((int)$input->getOption('parallel') > 1) {
+            $files = [];
+            foreach ($iterator as $file) {
+                $files[] = (string)$file;
+            }
+            sort($files);
+            return (new \Regression\Runner\ParallelRunner($input, new SymfonyStyle($input, $output), __FILE__))
+                ->run($files, $licenses, (int)$input->getOption('parallel'));
+        }
         $configParams = [
             'baseUri' => $input->getArgument('base_uri'),
             'keepData' => (bool)$input->getOption('keep-data'),
             'runId' => $input->getOption('run-id'),
+            'platform' => $input->getOption('platform'),
+            'worker' => (int)$input->getOption('worker'),
+            'workers' => (int)$input->getOption('workers'),
+            'userPool' => (function (array $pairs): array {
+                $pool = [];
+                foreach ($pairs as $pair) {
+                    [$login, $password] = explode(':', $pair, 2) + [1 => ''];
+                    $pool[$login] = $password;
+                }
+                return $pool;
+            })($input->getOption('user-pool') ?: []),
+            'licenseApplied' => (bool)$input->getOption('skip-license-update'),
         ];
         if ($credentials = $input->getOption('credentials')) {
             $loginPasswordPairs = [];
@@ -207,6 +236,19 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $io->horizontalTable(['Total', 'Success', 'Issues', 'Skipped'], [
                 [$testsCount, $success, $failed, $skipped]
             ]);
+            if ($reportFile = $input->getOption('report-json')) {
+                file_put_contents($reportFile, json_encode([
+                    'license' => $license,
+                    'total' => $testsCount,
+                    'success' => $success,
+                    'failed' => $failed,
+                    'skipped' => $skipped,
+                    'regressions' => $regressions,
+                    'vulnerabilities' => $vulnerabilities,
+                    'cleanupErrors' => $cleanupErrors,
+                    'durations' => $durations,
+                ], JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE));
+            }
             if (!empty($cleanupErrors)) {
                 $io->warning('Cleanup problems (data may be left on the instance; run ID ' . $config->getRunId() . ')');
                 $io->listing($cleanupErrors);

@@ -20,6 +20,8 @@ use Regression\Adapter\Sugarcrm\Role;
 
 trait SugarCRMAware
 {
+    use \Regression\Adapter\Sugarcrm\ManagesUsers;
+
     protected static string $serverUrl;
     protected static array $sugarVersion;
 
@@ -27,6 +29,9 @@ trait SugarCRMAware
 
     private static bool $serverInfoReceived = false;
     private static bool $licenseUpdated = false;
+
+    /** null until detected by login()/isIdmMode() */
+    protected static ?bool $idmMode = null;
 
     /** @var array{0: string, 1: string}|null [username, password] of the current session */
     protected ?array $currentUser = null;
@@ -68,10 +73,12 @@ trait SugarCRMAware
 
     public function login(string $username, string $password): self
     {
-        $this->apiCall('/ping?platform=base');
+        $platform = $this->config->getPlatform();
+        $this->apiCall('/ping?platform=' . rawurlencode($platform));
         if ($this->getLastResponse()->getStatusCode() === 401) {
             $pongData = json_decode((string)$this->getLastResponse()->getBody(), true);
-            if (isset($pongData['url']) && str_contains($pongData['url'], 'https://sts')) {
+            if ($this->isIdmPong($pongData)) {
+                static::$idmMode = true;
                 try {
                     $this->idmLogin($pongData['url'], $username, $password);
                 } catch (\Throwable $exception) {
@@ -84,13 +91,13 @@ trait SugarCRMAware
             'password' => $password,
             'grant_type' => 'password',
             'client_id' => 'sugar',
-            'platform' => 'base',
+            'platform' => $platform,
             'client_secret' => ''
         ]);
 
         $tokenRequest = new Request(
             'POST',
-            $this->prependBase("/oauth2/token?platform=base"),
+            $this->prependBase('/oauth2/token?platform=' . rawurlencode($platform)),
             ['Content-Type' => 'application/json'],
             $payload
         );
@@ -159,7 +166,7 @@ trait SugarCRMAware
     {
         $license = $this->config->getLicense();
 
-        if ($license !== Config::DEFAULT_LICENSE && !self::$licenseUpdated) {
+        if ($license !== Config::DEFAULT_LICENSE && !self::$licenseUpdated && !$this->config->get('licenseApplied', false)) {
             $this
                 ->loginAs('admin')
                 ->bwcLogin()
@@ -438,6 +445,26 @@ trait SugarCRMAware
     }
 
     /**
+     * IdM (cloud identity / STS) mode: an unauthenticated /ping answers 401 with the STS login url.
+     * Same check login() uses to switch to idmLogin().
+     */
+    public function isIdmMode(): bool
+    {
+        if (static::$idmMode === null) {
+            $request = new Request('GET', $this->prependBase('/ping?platform=' . rawurlencode($this->config->getPlatform())));
+            $response = $this->getClient()->send($request); // bypasses session and hooks
+            static::$idmMode = $response->getStatusCode() === 401
+                && $this->isIdmPong(json_decode((string)$response->getBody(), true));
+        }
+        return static::$idmMode;
+    }
+
+    private function isIdmPong(mixed $pongData): bool
+    {
+        return is_array($pongData) && isset($pongData['url']) && str_contains((string)$pongData['url'], 'https://sts');
+    }
+
+    /**
      * Run cleanup requests as the given user (admin by default); re-logs in only when needed.
      */
     public function cleanupAs(string $username = 'admin'): self
@@ -491,7 +518,9 @@ trait SugarCRMAware
     public function deferDelete(string $module, string $id): self
     {
         return $this->defer(function () use ($module, $id) {
-            $this->cleanupAs('admin')->apiCall("/$module/$id", 'DELETE');
+            // Users are IdM-managed entities: deleting them via REST requires the skip flag.
+            $suffix = $module === 'Users' ? '?skip_idm_mode_restrictions=1' : '';
+            $this->cleanupAs('admin')->apiCall("/$module/$id$suffix", 'DELETE');
             $status = $this->getLastResponse()->getStatusCode();
             if ($status === 200 || $status === 404) {
                 return;
@@ -657,5 +686,71 @@ trait SugarCRMAware
             });
 
         static::$subscriptionProduct = $this->getVar('subscriptionProduct');
+    }
+
+    /**
+     * Custom API platforms registered on the instance (Admin -> API Platforms).
+     * @return string[]
+     */
+    public function getCustomApiPlatforms(): array
+    {
+        return array_keys(array_filter($this->loadApiPlatforms(), fn(array $p) => !empty($p['custom'])));
+    }
+
+    /**
+     * Replace the list of custom API platforms, keeping notification options of all platforms.
+     * @param string[] $custom
+     */
+    public function saveCustomApiPlatforms(array $custom): self
+    {
+        $platforms = $this->loadApiPlatforms();
+        $options = [];
+        foreach ($platforms as $name => $p) {
+            if (empty($p['custom']) || in_array($name, $custom, true)) {
+                $options[$name] = ['enable_notifications' => $p['enable_notifications'] ?? true];
+            }
+        }
+        foreach ($custom as $name) {
+            $options[$name] ??= ['enable_notifications' => false];
+        }
+        $this->submitForm(
+            'index.php',
+            [
+                'module' => 'Administration',
+                'action' => 'saveApiPlatforms',
+                'custom_api_platforms' => json_encode(array_values($custom)),
+                'platformoptions' => json_encode($options),
+                'to_pdf' => '1',
+            ],
+        );
+        if ($this->getLastResponse()->getStatusCode() !== 200) {
+            throw new \RuntimeException('Saving API platforms failed: HTTP ' . $this->getLastResponse()->getStatusCode());
+        }
+        return $this;
+    }
+
+    /**
+     * @return array<string, array{custom: bool, enable_notifications: bool}>
+     */
+    protected function loadApiPlatforms(): array
+    {
+        $url = 'index.php?module=Administration&action=apiplatforms';
+        $this->loginAs('admin');
+        try {
+            $this->bwcLogin();
+        } catch (\RuntimeException) {
+        }
+        $this->send(new Request('GET', $url))->extractCsrfToken();
+        if (!preg_match('/var api_platforms = (\[.*?\]);/s', (string)$this->getLastResponse()->getBody(), $m)) {
+            throw new \RuntimeException('Cannot read API platforms from ' . $url);
+        }
+        $result = [];
+        foreach (json_decode($m[1], true) ?: [] as $p) {
+            $result[$p['name']] = [
+                'custom' => (bool)($p['custom'] ?? false),
+                'enable_notifications' => (bool)($p['enable_notifications'] ?? true),
+            ];
+        }
+        return $result;
     }
 }

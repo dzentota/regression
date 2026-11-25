@@ -207,7 +207,8 @@ abstract class Scenario
     public function uniqueName(string $base): string
     {
         static $counter = 0;
-        return sprintf('%s_%s_%d', $base, $this->config->getRunId(), ++$counter);
+        // pid: parallel workers share the run ID
+        return sprintf('%s_%s_%d_%d', $base, $this->config->getRunId(), getmypid(), ++$counter);
     }
 
     public function getClassification(): Classification

@@ -54,6 +54,15 @@ final class Config
         return $this->data['runId'];
     }
 
+    /**
+     * API platform used for logins. Each parallel worker uses its own platform, because Sugar keeps
+     * only one active token per user and platform (a new login revokes the previous token).
+     */
+    public function getPlatform(): string
+    {
+        return $this->data['platform'] ?? 'base';
+    }
+
     public function getUserPassword(string $username, $default = null): ?string
     {
         return $this->data['credentials'][$username] ?? $default;

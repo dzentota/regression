@@ -38,6 +38,7 @@
         }
     },
     "bin": [
-        "bin/regression"
+        "bin/regression",
+        "bin/regression-platforms"
     ]
 }
