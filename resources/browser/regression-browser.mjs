@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+// Headless browser helper for sugarcrm/regression.
+//
+// Protocol: one JSON request per line on stdin, one JSON response per line on stdout.
+//   {"id": 1, "cmd": "visit", "url": "...", "cookies": [...], "localStorage": {...}, "headers": {...},
+//    "waitUntil": "load", "timeoutMs": 30000, "settleMs": 1500, "markers": ["rgxss_..."]}
+//   -> {"id": 1, "ok": true, "status": 200, "finalUrl": "...", "hits": [{"kind": "dialog", "type": "alert",
+//       "message": "rgxss_..."}], "pageErrors": [...], "console": [...]}
+//   {"id": 2, "cmd": "close"}
+//
+// A "hit" is evidence that script injected by a scenario executed: a JavaScript dialog
+// (alert/confirm/prompt), a call to window.__rgXss(marker), or a print() call.
+// When markers are given, only hits mentioning one of them count (others are reported as "unmatched"),
+// so dialogs the application shows on its own don't produce false positives.
+
+import { createInterface } from 'node:readline';
+
+let chromium;
+try {
+  ({ chromium } = await import('playwright'));
+} catch (e) {
+  process.stdout.write(JSON.stringify({ id: 0, ok: false, fatal: true,
+    error: 'playwright is not installed: run `npm install` in ' + new URL('.', import.meta.url).pathname
+      + ' and `npx playwright install chromium`' }) + '\n');
+  process.exit(2);
+}
+
+// Browser: Playwright's Chromium (`npx playwright install chromium`) by default; an installed browser with
+// REGRESSION_BROWSER_CHANNEL=chrome|msedge or REGRESSION_BROWSER_EXECUTABLE=/path/to/chrome.
+let browser;
+try {
+  browser = await chromium.launch({
+    headless: true,
+    args: ['--disable-dev-shm-usage'],
+    channel: process.env.REGRESSION_BROWSER_CHANNEL || undefined,
+    executablePath: process.env.REGRESSION_BROWSER_EXECUTABLE || undefined,
+  });
+} catch (e) {
+  process.stdout.write(JSON.stringify({ id: 0, ok: false, fatal: true,
+    error: 'cannot launch browser: ' + String(e && e.message || e).split('\n')[0]
+      + ' (run `npx playwright install chromium` or set REGRESSION_BROWSER_CHANNEL=chrome)' }) + '\n');
+  process.exit(2);
+}
+
+const INIT_SCRIPT = `
+  (() => {
+    const report = (kind, message) => { try { window.__rgReport(kind, String(message)); } catch (e) {} };
+    window.__rgXss = (marker) => report('hook', marker);
+    const origPrint = window.print;
+    window.print = function () { report('print', 'print()'); };
+  })();
+`;
+
+async function visit(req) {
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: req.headers || {},
+    javaScriptEnabled: true,
+  });
+  const hits = [];
+  const pageErrors = [];
+  const consoleMessages = [];
+  const evaluated = [];
+  try {
+    if (Array.isArray(req.cookies) && req.cookies.length) {
+      await context.addCookies(req.cookies);
+    }
+    await context.exposeBinding('__rgReport', (_source, kind, message) => {
+      hits.push({ kind, type: kind, message });
+    });
+    await context.addInitScript(INIT_SCRIPT);
+    if (req.localStorage && Object.keys(req.localStorage).length) {
+      await context.addInitScript((items) => {
+        for (const [k, v] of Object.entries(items)) {
+          try { window.localStorage.setItem(k, v); } catch (e) {}
+        }
+      }, req.localStorage);
+    }
+
+    const page = await context.newPage();
+    page.on('dialog', async (dialog) => {
+      hits.push({ kind: 'dialog', type: dialog.type(), message: dialog.message() });
+      try { await dialog.dismiss(); } catch (e) {}
+    });
+    page.on('pageerror', (err) => pageErrors.push(String(err && err.message || err)));
+    page.on('console', (msg) => {
+      if (consoleMessages.length < 50) consoleMessages.push(`${msg.type()}: ${msg.text()}`.slice(0, 500));
+    });
+
+    const response = await page.goto(req.url, {
+      waitUntil: req.waitUntil || 'load',
+      timeout: req.timeoutMs || 30000,
+    });
+    // Sidecar routes (#Module/...) render asynchronously after the app has booted and authenticated.
+    const sidecar = req.waitForSidecar ?? new URL(req.url).hash.length > 1;
+    if (sidecar) {
+      // The login form shows briefly while the token is validated: wait for the user, not for the form.
+      const ready = await page.waitForFunction(
+        () => window.SUGAR && SUGAR.App && SUGAR.App.user && SUGAR.App.user.get('id'),
+        null,
+        { timeout: req.sidecarTimeoutMs || 20000 },
+      ).then(() => true, () => false);
+      if (!ready) {
+        throw new Error(await page.$('input[name=username]')
+          ? 'Sidecar shows the login page: the session was not accepted'
+          : 'Sidecar did not finish loading');
+      }
+    }
+    for (const action of req.actions || []) {
+      if (action.click) await page.click(action.click, { timeout: req.timeoutMs || 30000 });
+      if (action.waitFor) await page.waitForSelector(action.waitFor, { timeout: req.timeoutMs || 30000 });
+      if (action.eval) await page.evaluate(action.eval);
+      if (action.evaluate) evaluated.push(await page.evaluate(action.evaluate));
+      if (action.fill) await page.fill(action.fill, action.value ?? '', { timeout: req.timeoutMs || 30000 });
+      if (action.press) await page.press(action.press, action.key || 'Enter');
+      if (action.wait) await page.waitForTimeout(action.wait);
+    }
+    // Let deferred handlers (onerror of images, timers, Sidecar rendering) run.
+    await page.waitForTimeout(req.settleMs ?? 1500);
+
+    const markers = req.markers || [];
+    const matched = markers.length
+      ? hits.filter((h) => markers.some((m) => h.message.includes(m)))
+      : hits;
+    const unmatched = hits.filter((h) => !matched.includes(h));
+    return {
+      ok: true,
+      status: response ? response.status() : null,
+      finalUrl: page.url(),
+      hits: matched,
+      unmatched,
+      pageErrors: pageErrors.slice(0, 20),
+      console: consoleMessages,
+      evaluated,
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+const rl = createInterface({ input: process.stdin });
+for await (const line of rl) {
+  if (!line.trim()) continue;
+  let req;
+  try {
+    req = JSON.parse(line);
+  } catch (e) {
+    process.stdout.write(JSON.stringify({ id: null, ok: false, error: 'invalid JSON request' }) + '\n');
+    continue;
+  }
+  if (req.cmd === 'close') break;
+  let res;
+  try {
+    if (req.cmd !== 'visit') throw new Error(`unknown command ${req.cmd}`);
+    res = await visit(req);
+  } catch (e) {
+    res = { ok: false, error: String(e && e.message || e) };
+  }
+  process.stdout.write(JSON.stringify({ id: req.id, ...res }) + '\n');
+}
+await browser.close();

@@ -1,0 +1,9 @@
+{
+  "name": "regression-browser",
+  "private": true,
+  "type": "module",
+  "description": "Headless browser helper for sugarcrm/regression (XSS detection)",
+  "dependencies": {
+    "playwright": "1.49.1"
+  }
+}

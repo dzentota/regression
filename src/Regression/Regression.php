@@ -133,4 +133,20 @@ abstract class Regression extends Scenario
         $this->conclusion = $message;
         throw new RegressionException($message);
     }
+
+    /**
+     * Fails if script injected by this scenario executes when $url is rendered in a browser.
+     *
+     * @param array $options see Scenario::browse()
+     */
+    public function expectNoScriptExecution(string $url, ?string $errorMessage = null, array $options = []): self
+    {
+        $result = $this->browse($url, $options);
+        if (!empty($result['hits'])) {
+            $hits = implode('; ', array_map(fn($h) => "{$h['type']}: {$h['message']}", $result['hits']));
+            $this->throwException(($errorMessage ?? 'Injected script executed') . " at $url ($hits)");
+        }
+        $this->status = Status::NO_ISSUE;
+        return $this;
+    }
 }

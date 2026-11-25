@@ -474,6 +474,20 @@ trait SugarCRMAware
     }
 
     /**
+     * Browser session for Sugar: BWC cookies (from the HTTP client) plus the current OAuth token in
+     * Sidecar's storage (prod:SugarCRM:AuthAccessToken), so both BWC and Sidecar pages render logged in.
+     */
+    protected function browserState(string $url): array
+    {
+        $state = parent::browserState($url);
+        if (isset($this->session) && $this->session instanceof SugarSession) {
+            $prefix = (string)$this->config->get('sidecarStoragePrefix', 'prod:SugarCRM:');
+            $state['localStorage'] = [$prefix . 'AuthAccessToken' => json_encode($this->session->getAccessToken())];
+        }
+        return $state;
+    }
+
+    /**
      * Run cleanup requests as the given user (admin by default); re-logs in only when needed.
      */
     public function cleanupAs(string $username = 'admin'): self

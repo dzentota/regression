@@ -96,4 +96,16 @@ abstract class Assessment extends Scenario
             $this->status = Status::NO_ISSUE;
         }
     }
+
+    /**
+     * $result = true if script injected by this scenario executes when $url is rendered in a browser.
+     * Use with checkAssumptions().
+     *
+     * @param array $options see Scenario::browse()
+     */
+    public function assumeScriptExecution(string $url, &$result, array $options = []): self
+    {
+        $result = !empty($this->browse($url, $options)['hits']);
+        return $this;
+    }
 }

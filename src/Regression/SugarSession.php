@@ -14,6 +14,11 @@ class SugarSession implements Session
         $this->accessToken = $token;
     }
 
+    public function getAccessToken(): string
+    {
+        return $this->accessToken;
+    }
+
     public function init(RequestInterface $request): RequestInterface
     {
         return $request->withHeader('OAuth-Token', $this->accessToken);

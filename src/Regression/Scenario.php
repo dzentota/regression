@@ -204,6 +204,78 @@ abstract class Scenario
         return $this->cleanupErrors;
     }
 
+    /** @var string[] markers created by xssMarker() in this scenario */
+    private array $xssMarkers = [];
+
+    protected ?array $lastBrowse = null;
+
+    /**
+     * Unique token for XSS payloads. A payload "executes" when the browser sees it in a dialog
+     * (alert/confirm/prompt) or a call to __rgXss(marker).
+     */
+    public function xssMarker(): string
+    {
+        return $this->xssMarkers[] = 'rgxss' . bin2hex(random_bytes(5));
+    }
+
+    /**
+     * XSS payload reporting a fresh marker when executed. %s in the template is replaced with the
+     * JavaScript to run, e.g. '"><img src=x onerror=%s>' or '<script>%s</script>'.
+     */
+    public function xssPayload(string $template = '"><img src=x onerror=%s>', ?string $marker = null): string
+    {
+        $marker ??= $this->xssMarker();
+        return sprintf($template, "alert('$marker')");
+    }
+
+    /**
+     * Renders $url in a headless browser with this scenario's session and reports script execution.
+     *
+     * @param array $options see Browser::visit(); 'markers' defaults to the markers created by xssMarker()
+     * @return array{status: ?int, finalUrl: string, hits: array, unmatched: array, pageErrors: array, console: array}
+     */
+    public function browse(string $url, array $options = []): array
+    {
+        if (!preg_match('~^https?://~i', $url)) {
+            $url = $this->config->getBaseUri() . ltrim($url, '/');
+        }
+        $options += $this->browserState($url);
+        $options['markers'] ??= $this->xssMarkers;
+        return $this->lastBrowse = \Regression\Browser\Browser::instance()->visit($url, $options);
+    }
+
+    public function getLastBrowse(): ?array
+    {
+        return $this->lastBrowse;
+    }
+
+    /**
+     * Session the browser should use for $url: cookies of this scenario's HTTP client.
+     */
+    protected function browserState(string $url): array
+    {
+        $host = (string)parse_url($url, PHP_URL_HOST);
+        $jar = method_exists($this->getClient(), 'getConfig') ? $this->getClient()->getConfig('cookies') : null;
+        $cookies = [];
+        if ($jar instanceof \GuzzleHttp\Cookie\CookieJar) {
+            foreach ($jar->toArray() as $c) {
+                $domain = ltrim((string)($c['Domain'] ?? ''), '.');
+                if ($domain !== '' && $domain !== $host && !str_ends_with($host, '.' . $domain)) {
+                    continue; // e.g. "domain=web" set by a proxy: the browser would reject it
+                }
+                $cookies[] = [
+                    'name' => $c['Name'],
+                    'value' => (string)$c['Value'],
+                    'domain' => $host,
+                    'path' => $c['Path'] ?? '/',
+                    'secure' => (bool)($c['Secure'] ?? false),
+                    'httpOnly' => (bool)($c['HttpOnly'] ?? false),
+                ];
+            }
+        }
+        return ['cookies' => $cookies];
+    }
+
     /**
      * Name unique for this run, so parallel/repeated runs don't collide.
      */
