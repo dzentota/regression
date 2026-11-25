@@ -53,7 +53,9 @@ final class Browser
         fwrite($this->stdin, json_encode(['id' => $id, 'cmd' => 'visit', 'url' => $url] + $options) . "\n");
         fflush($this->stdin);
 
-        $timeout = (($options['timeoutMs'] ?? 30000) + ($options['settleMs'] ?? 1500)) / 1000 + 30;
+        // navigation + Sidecar boot (possibly twice: reload after a metadata change) + actions + settle
+        $timeout = (($options['timeoutMs'] ?? 30000) * 2 + ($options['sidecarTimeoutMs'] ?? 45000) * 2
+            + ($options['settleMs'] ?? 1500)) / 1000 + 30;
         $deadline = microtime(true) + $timeout;
         $line = '';
         while (!str_ends_with($line, "\n")) {

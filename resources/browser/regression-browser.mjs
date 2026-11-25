@@ -95,11 +95,18 @@ async function visit(req) {
     const sidecar = req.waitForSidecar ?? new URL(req.url).hash.length > 1;
     if (sidecar) {
       // The login form shows briefly while the token is validated: wait for the user, not for the form.
-      const ready = await page.waitForFunction(
+      const waitForUser = () => page.waitForFunction(
         () => window.SUGAR && SUGAR.App && SUGAR.App.user && SUGAR.App.user.get('id'),
         null,
-        { timeout: req.sidecarTimeoutMs || 20000 },
+        { timeout: req.sidecarTimeoutMs || 45000 },
       ).then(() => true, () => false);
+      let ready = await waitForUser();
+      if (!ready && await page.$('input[name=username]')) {
+        // After a metadata change (Studio, dropdowns...) Sidecar wipes its storage, token included, on boot.
+        // The init script restores the token on the next navigation.
+        await page.reload({ waitUntil: req.waitUntil || 'load' });
+        ready = await waitForUser();
+      }
       if (!ready) {
         throw new Error(await page.$('input[name=username]')
           ? 'Sidecar shows the login page: the session was not accepted'
@@ -108,6 +115,26 @@ async function visit(req) {
     }
     for (const action of req.actions || []) {
       if (action.click) await page.click(action.click, { timeout: req.timeoutMs || 30000 });
+      // Click the innermost element containing the text, even if hidden or outside the viewport (DOM click).
+      if (action.clickText) {
+        // Content is often loaded by AJAX after "load", and listings may be cached server-side for a moment:
+        // wait for the text, reloading the page a few times.
+        for (let attempt = 0; attempt <= (action.reloads ?? 3); attempt++) {
+          const found = await page.waitForFunction((text) => document.body && document.body.textContent.includes(text),
+            action.clickText, { timeout: action.waitMs ?? 8000 }).then(() => true, () => false);
+          if (found) break;
+          await page.reload({ waitUntil: req.waitUntil || 'load' });
+        }
+        const clicked = await page.evaluate((text) => {
+          const all = [...document.querySelectorAll('a, button, [onclick], [data-onclick], span, td, li, div')]
+            .filter((el) => (el.textContent || '').includes(text));
+          const target = all.find((el) => ![...el.children].some((c) => (c.textContent || '').includes(text))) || all[0];
+          if (!target) return false;
+          (target.closest('a, button, [onclick]') || target).click();
+          return true;
+        }, action.clickText);
+        if (!clicked && !action.optional) throw new Error(`no element contains text "${action.clickText}"`);
+      }
       if (action.waitFor) await page.waitForSelector(action.waitFor, { timeout: req.timeoutMs || 30000 });
       if (action.eval) await page.evaluate(action.eval);
       if (action.evaluate) evaluated.push(await page.evaluate(action.evaluate));
