@@ -23,12 +23,17 @@ trait ManagesUsers
 
     private static ?array $defaultLicenseTypes = null;
 
+    /** @var array<string, string> user_name => id of users created/leased by this scenario */
+    private array $userIds = [];
+
     /**
      * @param array<Role|string> $roles Role objects or role ids
      * @param string[] $teams team ids or names
      * @param string|null $reportsTo user_name of the manager
      * @param string[]|null $licenseTypes default: admin's license types
      * @param array $fields any other Users fields
+     * @param string|null $like user_name of an existing user whose teams, manager and license types are copied
+     *                          (e.g. 'sally'), so migrated tests keep the same record visibility
      * @return string user_name to pass to loginAs()
      */
     public function createUser(
@@ -38,15 +43,31 @@ trait ManagesUsers
         ?array $licenseTypes = null,
         bool $isAdmin = false,
         array $fields = [],
+        ?string $like = null,
     ): string {
-        return $this->asAdmin(function () use ($roles, $teams, $reportsTo, $licenseTypes, $isAdmin, $fields) {
+        return $this->asAdmin(function () use ($roles, $teams, $reportsTo, $licenseTypes, $isAdmin, $fields, $like) {
             $teamIds = array_map(fn(string $team) => $this->resolveId('Teams', 'name', $team), $teams);
             $managerId = $reportsTo !== null ? $this->resolveId('Users', 'user_name', $reportsTo) : null;
+            if ($like !== null) {
+                $template = $this->resolveId('Users', 'user_name', $like);
+                $this->apiCall("/Users/$template?fields=reports_to_id,license_type");
+                $data = $this->json();
+                $managerId ??= ($data['reports_to_id'] ?? '') ?: null;
+                $licenseTypes ??= $data['license_type'] ?? null;
+                $this->apiCall("/Users/$template/link/team_memberships?fields=id,private&max_num=100");
+                foreach ($this->json()['records'] ?? [] as $team) {
+                    if (empty($team['private'])) {
+                        $teamIds[] = $team['id'];
+                    }
+                }
+                $teamIds = array_values(array_unique($teamIds));
+            }
 
             if ($this->isIdmMode()) {
                 return $this->leasePoolUser($roles, $teamIds, $managerId);
             }
             $user = $this->createLocalUser($teamIds, $managerId, $licenseTypes, $isAdmin, $fields);
+            $this->userIds[$user['user_name']] = $user['id'];
             $this->assignRoles($user['id'], $roles);
             return $user['user_name'];
         });
@@ -111,6 +132,7 @@ trait ManagesUsers
         self::$leasedPoolUsers[$candidate] = true;
         $this->config->set('credentials', [$candidate => $pool[$candidate]] + (array)$this->config->get('credentials', []));
         $userId = $this->resolveId('Users', 'user_name', $candidate);
+        $this->userIds[$candidate] = $userId;
 
         $this->defer(function () use ($candidate) {
             unset(self::$leasedPoolUsers[$candidate]);
@@ -128,6 +150,14 @@ trait ManagesUsers
             $this->defer(fn() => $this->cleanupAs('admin')->apiCall("/Users/$userId", 'PUT', ['reports_to_id' => $previous, 'skip_idm_mode_restrictions' => true]), "restore reports_to of $candidate");
         }
         return $candidate;
+    }
+
+    /**
+     * Id of a user created by createUser() (or of any existing user).
+     */
+    public function getUserId(string $userName): string
+    {
+        return $this->userIds[$userName] ??= $this->asAdmin(fn() => $this->resolveId('Users', 'user_name', $userName));
     }
 
     /**

@@ -334,8 +334,13 @@ trait SugarCRMAware
             json_encode([])
         );
         $this->send($sidRequest);
+        $status = $this->lastResponse->getStatusCode();
         if (!preg_match("/PHPSESSID=([^;]+);/", $this->lastResponse->getHeaderLine('Set-Cookie'), $m)) {
-            throw new \RuntimeException("Session ID not found");
+            // No new cookie on a successful call: this client already holds a BWC session (second bwcLogin()).
+            if ($status === 200) {
+                return $this;
+            }
+            throw new \RuntimeException("Session ID not found (bwc/login returned HTTP $status)");
         }
         return $this;
     }
@@ -526,11 +531,7 @@ trait SugarCRMAware
                 return;
             }
             // Legacy (BWC) modules may not support REST deletion: fall back to the classic UI action.
-            try {
-                $this->bwcLogin();
-            } catch (\RuntimeException) {
-                // A BWC session (PHPSESSID cookie) already exists for this client: reuse it.
-            }
+            $this->bwcLogin();
             $this->submitForm(
                 'index.php',
                 ['module' => $module, 'action' => 'Delete', 'record' => $id],
@@ -694,7 +695,24 @@ trait SugarCRMAware
      */
     public function getCustomApiPlatforms(): array
     {
-        return array_keys(array_filter($this->loadApiPlatforms(), fn(array $p) => !empty($p['custom'])));
+        return $this->onBasePlatform(
+            fn() => array_keys(array_filter($this->loadApiPlatforms(), fn(array $p) => !empty($p['custom'])))
+        );
+    }
+
+    /**
+     * Platform management always runs as admin on 'base' with a separate client: the worker's own
+     * platform may be the one being removed.
+     */
+    private function onBasePlatform(callable $callback): mixed
+    {
+        $platform = $this->config->getPlatform();
+        $this->config->set('platform', 'base');
+        try {
+            return $this->asAdmin($callback);
+        } finally {
+            $this->config->set('platform', $platform);
+        }
     }
 
     /**
@@ -702,6 +720,12 @@ trait SugarCRMAware
      * @param string[] $custom
      */
     public function saveCustomApiPlatforms(array $custom): self
+    {
+        $this->onBasePlatform(fn() => $this->doSaveCustomApiPlatforms($custom));
+        return $this;
+    }
+
+    private function doSaveCustomApiPlatforms(array $custom): void
     {
         $platforms = $this->loadApiPlatforms();
         $options = [];
@@ -726,7 +750,6 @@ trait SugarCRMAware
         if ($this->getLastResponse()->getStatusCode() !== 200) {
             throw new \RuntimeException('Saving API platforms failed: HTTP ' . $this->getLastResponse()->getStatusCode());
         }
-        return $this;
     }
 
     /**
@@ -735,11 +758,7 @@ trait SugarCRMAware
     protected function loadApiPlatforms(): array
     {
         $url = 'index.php?module=Administration&action=apiplatforms';
-        $this->loginAs('admin');
-        try {
-            $this->bwcLogin();
-        } catch (\RuntimeException) {
-        }
+        $this->bwcLogin();
         $this->send(new Request('GET', $url))->extractCsrfToken();
         if (!preg_match('/var api_platforms = (\[.*?\]);/s', (string)$this->getLastResponse()->getBody(), $m)) {
             throw new \RuntimeException('Cannot read API platforms from ' . $url);

@@ -96,7 +96,10 @@ abstract class Scenario
             'base_uri' => $this->config->getBaseUri(),
             'http_errors' => false,
             'verify' => false,
-            'cookies' => true
+            'cookies' => true,
+            // Without a timeout a single stuck request blocks a worker (and the exclusive phase) indefinitely.
+            'timeout' => (float)$this->config->get('timeout', 120),
+            'connect_timeout' => 15,
         ]);
         return new Guzzle($guzzle);
     }

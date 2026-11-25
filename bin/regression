@@ -52,6 +52,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
     ->addOption('user-pool', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Pre-provisioned users (user:password) used by createUser() when users cannot be created (IdM)')
     ->addOption('worker', null, InputOption::VALUE_REQUIRED, 'Worker index (set by --parallel)', '1')
     ->addOption('workers', null, InputOption::VALUE_REQUIRED, 'Number of workers (set by --parallel)', '1')
+    ->addOption('timings', null, InputOption::VALUE_REQUIRED, 'Previous --report-json: run the longest scenarios first in --parallel mode')
+    ->addOption('timeout', null, InputOption::VALUE_REQUIRED, 'HTTP request timeout in seconds', '120')
+    ->addOption('serve', null, InputOption::VALUE_NONE, 'Worker mode: read scenario paths from stdin, write JSON results to stdout')
     ->addOption('keep-data', null, InputOption::VALUE_NONE, 'Do not run cleanups/tearDown (leave created data for debugging)')
     ->addOption('run-id', null, InputOption::VALUE_REQUIRED, 'Identifier used to tag data created by this run (default: random)')
     ->addOption('slowest', null, InputOption::VALUE_REQUIRED, 'Show N slowest scenarios', '10')
@@ -59,7 +62,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $start = microtime(true);
         $type = $input->getOption('type');
         $testFiles = $input->getOption('test_files');
-        if (!empty($testFiles)) {
+        if ($input->getOption('serve')) {
+            $iterator = new ArrayObject([]); // scenarios arrive on stdin
+        } elseif (!empty($testFiles)) {
             $iterator = new ArrayObject($testFiles);
         } else {
             if ($type !== null && !in_array(strtolower($type), ['regression', 'assessment'])) {
@@ -86,6 +91,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             'baseUri' => $input->getArgument('base_uri'),
             'keepData' => (bool)$input->getOption('keep-data'),
             'runId' => $input->getOption('run-id'),
+            'timeout' => (float)$input->getOption('timeout'),
             'platform' => $input->getOption('platform'),
             'worker' => (int)$input->getOption('worker'),
             'workers' => (int)$input->getOption('workers'),
@@ -111,7 +117,6 @@ use Symfony\Component\Console\Style\SymfonyStyle;
         $code = 0;
 
         foreach ($licenses as $license) {
-            $queueOutput = new QueueOutput();
             $testsCount = 0;
             $failed = 0;
             $success = 0;
@@ -122,7 +127,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $durations = [];
 
             $io = new SymfonyStyle($input, $output);
-            $io->title('Running Regression Tests for license ' . $license . '...');
+            if (!$input->getOption('serve')) {
+                $io->title('Running Regression Tests for license ' . $license . '...');
+            }
             $totalScenarios = iterator_count($iterator);
             $configParams['license'] = $license;
             $config = Config::create($configParams);
@@ -130,106 +137,48 @@ use Symfony\Component\Console\Style\SymfonyStyle;
             $isDebug = $input->getOption('debug');
             $isFailedScenarios = $input->getOption('failed_scenarios');
             $isFailedSteps = $input->getOption('failed_steps');
+            $executor = new \Regression\Runner\ScenarioExecutor($isDebug, $isFailedScenarios, $isFailedSteps, (bool)$input->getOption('trace'));
+
+            if ($input->getOption('serve')) {
+                // Parallel worker: read scenario paths from stdin, answer one JSON line per scenario.
+                while (($line = fgets(STDIN)) !== false) {
+                    $file = trim($line);
+                    if ($file === '') {
+                        continue;
+                    }
+                    $buffer = new \Symfony\Component\Console\Output\BufferedOutput($output->getVerbosity(), false);
+                    $result = $executor->run($file, $config, new SymfonyStyle($input, $buffer));
+                    $result['output'] = $buffer->fetch();
+                    fwrite(STDOUT, json_encode($result, JSON_INVALID_UTF8_SUBSTITUTE) . "\n");
+                    fflush(STDOUT);
+                }
+                return 0;
+            }
+
             $showProgress = false;
             if (!($isDebug || $isFailedScenarios || $isFailedSteps)) {
                 $showProgress = true;
                 $io->progressStart($totalScenarios);
             }
 
+            $results = [];
             foreach ($iterator as $classFile) {
-                if (!file_exists($classFile)) {
-                    $io->error("$classFile doesn't exist. Skipped");
+                $result = $executor->run((string)$classFile, $config, $io);
+                if ($result['outcome'] === \Regression\Runner\ScenarioExecutor::MISSING) {
                     continue;
                 }
-                require_once $classFile;
-                $class = basename($classFile, '.php');
-
-                /**
-                 * @var \Regression\Scenario $scenario
-                 */
-                $scenario = new $class($config);
-                if (!$scenario->shouldBeExecuted()) {
-                    $io->newLine(2);
-                    $io->title($scenario->getDescription() . ': SKIPPED');
-                    $skipped++;
-                    $testsCount++;
-                    continue;
-                }
-                if ($input->getOption('trace')) {
-                    $scenario->onRequest(function (RequestInterface &$request) use ($scenario) {
-                        $request = $request->withHeader('X-Test-Name', get_class($scenario));
-                    });
-                }
-
-                if ($isDebug || $isFailedScenarios || $isFailedSteps) {
-                    $scenario
-                        ->onRequest(function (RequestInterface $request, array $options = []) use ($io, $isDebug, $queueOutput, $isFailedSteps) {
-                            $requestOutputItem = new RequestOutputItem($request, $options);
-                            if ($isDebug) {
-                                $requestOutputItem->execOutput($io)();
-                                return;
-                            }
-                            if ($isFailedSteps) {
-                                $queueOutput->clear();
-                            }
-
-                            $queueOutput->push($requestOutputItem);
-                        })
-                        ->onResponse(function (ResponseInterface $response) use ($io, $isDebug, $queueOutput) {
-                            $responseOutputItem = new ResponseOutputItem($response);
-                            if ($isDebug) {
-                                $responseOutputItem->execOutput($io)();
-                                return;
-                            }
-                            $queueOutput->push($responseOutputItem);
-                        });
-                }
-
-                $scenarioFailed = false;
+                $results[] = $result;
                 $testsCount++;
-                $scenarioStart = microtime(true);
-                try {
-                    if ($isDebug || $isFailedScenarios || $isFailedSteps) {
-                        $io->title($scenario->getDescription());
-                    }
-                    $scenario
-                        ->applyLicense()
-                        ->execute();
-                    if ($scenario->getStatus() === Status::UNKNOWN) {
-                        $scenarioFailed = true;
-                        $io->error("Risky. No expectations or assumptions made: {$scenario->getDescription()}");
-                    } elseif ($scenario->getStatus() === Status::HAS_ISSUE) {
-                        $vulnerabilities[] = $scenario->getSeverity() ?
-                            sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $scenario->getConclusion()) :
-                            sprintf('%s: "%s"', $scenario->getDescription(), $scenario->getConclusion());
-                        $scenarioFailed = true;
-                        $failed++;
-                    } else {
-                        $success++;
-                    }
-                } catch (Throwable $exception) {
-                    $regressions[] = $scenario->getSeverity() ?
-                        sprintf('[%s] %s: "%s"', $scenario->getSeverity(), $scenario->getDescription(), $exception->getMessage()) :
-                        sprintf('%s: "%s"', $scenario->getDescription(), $exception->getMessage());
-                    $scenarioFailed = true;
-                    $failed++;
-                } finally {
-                    $durations[$scenario->getDescription()] = microtime(true) - $scenarioStart;
-                    foreach ($scenario->getCleanupErrors() as $cleanupError) {
-                        $cleanupErrors[] = sprintf('%s: %s', $scenario->getDescription(), $cleanupError);
-                    }
-                    if ($isFailedScenarios || $isFailedSteps) {
-                        if ($scenarioFailed) {
-                            $io->error('FAILED');
-                            $queueOutput->flushToOutput($io);
-                        } else {
-                            $io->success('PASSED');
-                        }
-                    } else {
-                        $queueOutput->clear();
-                        $showProgress && $io->progressAdvance();
-                    }
-                }
+                $durations[$result['description']] = $result['duration'];
+                array_push($cleanupErrors, ...$result['cleanupErrors']);
+                match ($result['outcome']) {
+                    'success' => $success++,
+                    'skipped' => $skipped++,
+                    'vulnerability' => [$failed++, $vulnerabilities[] = $result['message']],
+                    'regression' => [$failed++, $regressions[] = $result['message']],
+                    default => null, // risky: reported, not counted (historical behaviour)
+                };
+                $showProgress && $io->progressAdvance();
             }
 
             $showProgress && $io->progressFinish();
@@ -247,6 +196,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
                     'vulnerabilities' => $vulnerabilities,
                     'cleanupErrors' => $cleanupErrors,
                     'durations' => $durations,
+                    'tests' => $results,
                 ], JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE));
             }
             if (!empty($cleanupErrors)) {
