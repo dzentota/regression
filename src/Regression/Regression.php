@@ -141,6 +141,9 @@ abstract class Regression extends Scenario
      */
     public function expectNoScriptExecution(string $url, ?string $errorMessage = null, array $options = []): self
     {
+        if (!empty($options['allowMissingPayload'])) {
+            $options['markerRetries'] ??= 0; // the payload isn't expected on the page: don't reload looking for it
+        }
         $result = $this->browse($url, $options);
         $inPage = array_sum((array)($result['markersInPage'] ?? []));
         if (empty($result['hits']) && !empty($result['markersInPage']) && $inPage === 0 && empty($options['allowMissingPayload'])) {

@@ -34,6 +34,12 @@ final class ParallelRunner
     private array $writers = [];
 
     private int $done = 0;
+
+    /** @var array<int, float> */
+    private array $idleSince = [];
+
+    /** @var float[] seconds workers stayed idle while scenarios were queued */
+    private array $idleGaps = [];
     private int $total = 0;
 
     public function __construct(
@@ -103,7 +109,11 @@ final class ParallelRunner
             $this->total = count($shared) + count($exclusive);
             $phase = microtime(true);
             $results = $this->schedule($shared, $workers, $license);
-            $this->io->info(sprintf('Shared phase: %.1f seconds.', microtime(true) - $phase));
+            $overhead = array_sum(array_column($results, 'overhead'));
+            $this->io->info(sprintf(
+                'Shared phase: %.1f seconds (worker overhead %.0fs, idle waiting for runnable scenarios %.0fs).',
+                microtime(true) - $phase, $overhead, array_sum($this->idleGaps)
+            ));
 
             // A failure in the shared phase may come from interference with a concurrent scenario whose side
             // effects weren't detected: re-run it alone and trust that result.
@@ -177,6 +187,10 @@ final class ParallelRunner
                     }
                     foreach ($queue as $i => $job) {
                         if ($job['locks']->canRun($this->readers, $this->writers)) {
+                            if (isset($this->idleSince[$k])) {
+                                $this->idleGaps[] = microtime(true) - $this->idleSince[$k];
+                                unset($this->idleSince[$k]);
+                            }
                             unset($queue[$i]);
                             $this->dispatch($k, $job);
                             break;
@@ -187,9 +201,11 @@ final class ParallelRunner
             }
         } finally {
             foreach ($this->workers as $worker) {
-                @fclose($worker['stdin']);
+                @fclose($worker['stdin']);  // EOF: the worker finishes and exits
+            }
+            foreach ($this->workers as $worker) {
                 @fclose($worker['stdout']);
-                proc_close($worker['handle']);
+                \Regression\Browser\Browser::terminate($worker['handle'], 15.0);
                 @unlink($worker['log']);
             }
             $this->workers = [];
@@ -206,6 +222,7 @@ final class ParallelRunner
             $this->writers[$resource] = true;
         }
         $this->workers[$k]['job'] = $job;
+        $this->workers[$k]['dispatchedAt'] = microtime(true);
         fwrite($this->workers[$k]['stdin'], $job['file'] . "\n");
         fflush($this->workers[$k]['stdin']);
     }
@@ -276,6 +293,10 @@ final class ParallelRunner
 
     private function finish(int $k, array $result): array
     {
+        // Time between dispatch and result not spent in the scenario itself (scheduling/IPC/worker overhead).
+        $result['overhead'] = isset($this->workers[$k]['dispatchedAt'])
+            ? max(0.0, microtime(true) - $this->workers[$k]['dispatchedAt'] - (float)$result['duration']) : 0.0;
+        $this->idleSince[$k] = microtime(true);
         $this->release($this->workers[$k]['job']);
         $this->workers[$k]['job'] = null;
         $this->done++;

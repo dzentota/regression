@@ -113,8 +113,30 @@ final class Browser
         @fwrite($this->stdin, json_encode(['cmd' => 'close']) . "\n");
         @fclose($this->stdin);
         @fclose($this->stdout);
-        proc_close($this->process);
+        self::terminate($this->process, 5.0);
         $this->process = $this->stdin = $this->stdout = null;
+    }
+
+    /**
+     * Waits up to $grace seconds for a process to exit, then kills it. proc_close() alone can block for
+     * minutes when a browser lingers on shutdown.
+     *
+     * @param resource $process
+     */
+    public static function terminate($process, float $grace): void
+    {
+        $deadline = microtime(true) + $grace;
+        while (proc_get_status($process)['running'] && microtime(true) < $deadline) {
+            usleep(100_000);
+        }
+        if (proc_get_status($process)['running']) {
+            proc_terminate($process, 15);
+            usleep(500_000);
+            if (proc_get_status($process)['running']) {
+                proc_terminate($process, 9);
+            }
+        }
+        proc_close($process);
     }
 
     public function __destruct()

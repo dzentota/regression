@@ -90,6 +90,39 @@ roles/teams/manager applied to them are reverted afterwards.
 
 `$this->hasLicense('SUGAR_SELL')` / `getInstanceLicenses()` for conditional logic.
 
+## Browser checks (XSS)
+
+For DOM-based XSS and for cases where substring checks on escaping are fragile, scenarios can render a
+page in headless Chromium (Playwright) and check whether injected script actually executes:
+
+```php
+$xss = $this->xssPayload('"><img src=x onerror=%s>');   // %s -> alert(/<unique marker>/)
+// ... store $xss somewhere ...
+$this->expectNoScriptExecution('index.php?module=Accounts&action=DetailView&record=' . $id);   // Regression
+$this->assumeScriptExecution('#Accounts/' . $id, $executed)                                    // Assessment
+    ->checkAssumptions('Account name is not escaped', $executed);
+```
+
+- The browser uses the scenario's session: BWC cookies and the OAuth tokens in Sidecar's storage
+  (`#Module/...` routes wait for Sidecar to boot). The first-login setup wizard is skipped.
+- Only dialogs (`alert`/`confirm`/`prompt`) carrying the scenario's markers count, so the application's
+  own dialogs don't produce false positives.
+- A Regression fails if the payload isn't on the page at all (wrong page, data not saved yet): such a pass
+  would prove nothing. Pages are reloaded a few times first, for caches to catch up. Pass
+  `['allowMissingPayload' => true]` when the payload is expected only in the URL.
+- Options (third argument / `browse()`): `actions` (`clickText`, `click`, `fill`, `press`, `wait`,
+  `evaluate`), `settleMs`, `timeoutMs`, `markerRetries`, `traceRequests`.
+
+Setup, only where browser scenarios run (Node.js >= 18):
+
+```
+npm ci --prefix vendor/sugarcrm/regression/resources/browser
+npx --prefix vendor/sugarcrm/regression/resources/browser playwright install --with-deps chromium
+```
+
+or use an installed browser: `REGRESSION_BROWSER_CHANNEL=chrome` (or `msedge`), or
+`REGRESSION_BROWSER_EXECUTABLE=/path/to/chrome`. `REGRESSION_NODE` overrides the `node` binary.
+
 ## Parallel runs
 
 Sugar keeps one OAuth token per user and API platform, so each worker logs in on its own platform
