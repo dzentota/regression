@@ -142,6 +142,13 @@ abstract class Regression extends Scenario
     public function expectNoScriptExecution(string $url, ?string $errorMessage = null, array $options = []): self
     {
         $result = $this->browse($url, $options);
+        $inPage = array_sum((array)($result['markersInPage'] ?? []));
+        if (empty($result['hits']) && !empty($result['markersInPage']) && $inPage === 0 && empty($options['allowMissingPayload'])) {
+            $this->throwException(
+                "Payload not found on $url: the page doesn't show the injected data, so the test can't tell whether it is escaped"
+                . ' (wrong page, data not saved, or still cached). Pass allowMissingPayload to accept.'
+            );
+        }
         if (!empty($result['hits'])) {
             $hits = implode('; ', array_map(fn($h) => "{$h['type']}: {$h['message']}", $result['hits']));
             $this->throwException(($errorMessage ?? 'Injected script executed') . " at $url ($hits)");

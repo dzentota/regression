@@ -99,10 +99,11 @@ async function visit(req) {
       if (consoleMessages.length < 50) consoleMessages.push(`${msg.type()}: ${msg.text()}`.slice(0, 500));
     });
 
-    const response = await page.goto(req.url, {
-      waitUntil: req.waitUntil || 'load',
-      timeout: req.timeoutMs || 30000,
-    });
+    let response;
+    const render = async (reload) => {
+    response = reload
+      ? await page.reload({ waitUntil: req.waitUntil || 'load', timeout: req.timeoutMs || 30000 })
+      : await page.goto(req.url, { waitUntil: req.waitUntil || 'load', timeout: req.timeoutMs || 30000 });
     // Sidecar routes (#Module/...) render asynchronously after the app has booted and authenticated.
     const sidecar = req.waitForSidecar ?? new URL(req.url).hash.length > 1;
     if (sidecar) {
@@ -113,7 +114,7 @@ async function visit(req) {
         { timeout: req.sidecarTimeoutMs || 45000 },
       ).then(() => true, () => false);
       let ready = await waitForUser();
-      var sidecarReadyMs = Date.now() - started;
+      sidecarReadyMs = Date.now() - started;
       if (!ready && await page.$('input[name=username]')) {
         // After a metadata change (Studio, dropdowns...) Sidecar wipes its storage, token included, on boot.
         // The init script restores the token on the next navigation.
@@ -159,13 +160,32 @@ async function visit(req) {
     // Let deferred handlers (onerror of images, timers, Sidecar rendering) run.
     await page.waitForTimeout(req.settleMs ?? 1500);
 
+    };
+    let sidecarReadyMs;
+    const markers = req.markers || [];
+    const countMarkers = async () => {
+      const html = (await Promise.all(page.frames().map((f) => f.content().catch(() => '')))).join('\n');
+      return Object.fromEntries(markers.map((m) => [m, html.split(m).length - 1]));
+    };
+    await render(false);
+    // Where the payload ended up: a test only proves something if its payload is on the page. Studio/metadata
+    // driven pages may show fresh data only after caches catch up: reload a few times before giving up.
+    let markersInPage = {};
+    for (let attempt = 0; ; attempt++) {
+      if (!markers.length) break;
+      markersInPage = await countMarkers();
+      const present = Object.values(markersInPage).some((n) => n > 0);
+      if (present || hits.length || attempt >= (req.markerRetries ?? 3)) break;
+      await page.waitForTimeout(req.markerRetryDelayMs ?? 3000);
+      await render(true);
+    }
+
     // Tokens may have been refreshed by the page: report them so the caller can keep its session in sync.
     let storage;
     if (Array.isArray(req.returnStorage) && req.returnStorage.length) {
       storage = await page.evaluate((keys) => Object.fromEntries(keys.map((k) => [k, localStorage.getItem(k)])),
         req.returnStorage).catch(() => undefined);
     }
-    const markers = req.markers || [];
     const matched = markers.length
       ? hits.filter((h) => markers.some((m) => h.message.includes(m)))
       : hits;
@@ -180,6 +200,7 @@ async function visit(req) {
       console: consoleMessages,
       evaluated,
       storage,
+      markersInPage,
       timing: { totalMs: Date.now() - started, sidecarReadyMs: typeof sidecarReadyMs === 'undefined' ? null : sidecarReadyMs },
       requests: req.traceRequests ? requests.sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0)).slice(0, req.traceRequests === true ? 15 : req.traceRequests) : undefined,
     };

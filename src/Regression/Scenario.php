@@ -225,7 +225,8 @@ abstract class Scenario
     public function xssPayload(string $template = '"><img src=x onerror=%s>', ?string $marker = null): string
     {
         $marker ??= $this->xssMarker();
-        return sprintf($template, "alert('$marker')");
+        // Regex literal: no quotes, so the payload doesn't depend on the string context it is injected into.
+        return sprintf($template, "alert(/$marker/)");
     }
 
     /**

@@ -482,6 +482,7 @@ trait SugarCRMAware
     {
         $state = parent::browserState($url);
         if (isset($this->session) && $this->session instanceof SugarSession) {
+            $this->completeUserSetup();
             $prefix = (string)$this->config->get('sidecarStoragePrefix', 'prod:SugarCRM:');
             $state['localStorage'] = [$prefix . 'AuthAccessToken' => json_encode($this->session->getAccessToken())];
             // Sidecar refreshes the token when metadata changed (412) and logs out without a refresh token.
@@ -491,6 +492,25 @@ trait SugarCRMAware
             $state['returnStorage'] = [$prefix . 'AuthAccessToken', $prefix . 'AuthRefreshToken'];
         }
         return $state;
+    }
+
+    /** @var array<string, true> access tokens whose user already has the setup wizard completed */
+    private array $setupCompleted = [];
+
+    /**
+     * Sidecar shows the first-login "User Profile Setup" wizard instead of the requested page until the
+     * user's `ut` preference is set (fresh instances, users from createUser()). Sent directly, so it isn't
+     * snapshotted/restored like the scenario's own preference changes.
+     */
+    private function completeUserSetup(): void
+    {
+        $token = $this->session->getAccessToken();
+        if (isset($this->setupCompleted[$token])) {
+            return;
+        }
+        $request = new Request('PUT', $this->prependBase('/me/preferences'), ['Content-Type' => 'application/json'], json_encode(['ut' => 1]));
+        $this->getClient()->send($this->session->init($request));
+        $this->setupCompleted[$token] = true;
     }
 
     /**

@@ -55,7 +55,7 @@ final class Browser
 
         // navigation + Sidecar boot (possibly twice: reload after a metadata change) + actions + settle
         $timeout = (($options['timeoutMs'] ?? 30000) * 2 + ($options['sidecarTimeoutMs'] ?? 45000) * 2
-            + ($options['settleMs'] ?? 1500)) / 1000 + 30;
+            + ($options['settleMs'] ?? 1500)) / 1000 * (1 + ($options['markerRetries'] ?? 3)) + 30;
         $deadline = microtime(true) + $timeout;
         $line = '';
         while (!str_ends_with($line, "\n")) {
