@@ -9,9 +9,14 @@ class SugarSession implements Session
 {
     private string $accessToken;
 
-    public function __construct(string $token)
+    public function __construct(string $token, private ?string $refreshToken = null)
     {
         $this->accessToken = $token;
+    }
+
+    public function getRefreshToken(): ?string
+    {
+        return $this->refreshToken;
     }
 
     public function getAccessToken(): string

@@ -78,6 +78,18 @@ async function visit(req) {
     }
 
     const page = await context.newPage();
+    const started = Date.now();
+    const requests = [];
+    if (req.traceRequests) {
+      page.on('requestfinished', async (r) => {
+        const t = r.timing();
+        const total = t.responseEnd > 0 ? t.responseEnd : -1;
+        let status = null;
+        try { status = (await r.response())?.status() ?? null; } catch (e) {}
+        requests.push({ url: r.url().slice(0, 160), ms: Math.round(total), status, at: Date.now() - started });
+      });
+      page.on('requestfailed', (r) => requests.push({ url: r.url().slice(0, 160), failed: r.failure()?.errorText, at: Date.now() - started }));
+    }
     page.on('dialog', async (dialog) => {
       hits.push({ kind: 'dialog', type: dialog.type(), message: dialog.message() });
       try { await dialog.dismiss(); } catch (e) {}
@@ -101,11 +113,13 @@ async function visit(req) {
         { timeout: req.sidecarTimeoutMs || 45000 },
       ).then(() => true, () => false);
       let ready = await waitForUser();
+      var sidecarReadyMs = Date.now() - started;
       if (!ready && await page.$('input[name=username]')) {
         // After a metadata change (Studio, dropdowns...) Sidecar wipes its storage, token included, on boot.
         // The init script restores the token on the next navigation.
         await page.reload({ waitUntil: req.waitUntil || 'load' });
         ready = await waitForUser();
+        sidecarReadyMs = Date.now() - started;
       }
       if (!ready) {
         throw new Error(await page.$('input[name=username]')
@@ -145,6 +159,12 @@ async function visit(req) {
     // Let deferred handlers (onerror of images, timers, Sidecar rendering) run.
     await page.waitForTimeout(req.settleMs ?? 1500);
 
+    // Tokens may have been refreshed by the page: report them so the caller can keep its session in sync.
+    let storage;
+    if (Array.isArray(req.returnStorage) && req.returnStorage.length) {
+      storage = await page.evaluate((keys) => Object.fromEntries(keys.map((k) => [k, localStorage.getItem(k)])),
+        req.returnStorage).catch(() => undefined);
+    }
     const markers = req.markers || [];
     const matched = markers.length
       ? hits.filter((h) => markers.some((m) => h.message.includes(m)))
@@ -159,6 +179,9 @@ async function visit(req) {
       pageErrors: pageErrors.slice(0, 20),
       console: consoleMessages,
       evaluated,
+      storage,
+      timing: { totalMs: Date.now() - started, sidecarReadyMs: typeof sidecarReadyMs === 'undefined' ? null : sidecarReadyMs },
+      requests: req.traceRequests ? requests.sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0)).slice(0, req.traceRequests === true ? 15 : req.traceRequests) : undefined,
     };
   } finally {
     await context.close();

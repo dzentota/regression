@@ -106,10 +106,11 @@ trait SugarCRMAware
             $payload
         );
         $this->send($tokenRequest);
-        if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = (json_decode((string)$this->lastResponse->getBody()))->access_token) === null) {
+        $tokens = json_decode((string)$this->lastResponse->getBody());
+        if ($this->getLastResponse()->getStatusCode() !== 200 || ($token = $tokens->access_token ?? null) === null) {
             throw new \RuntimeException("Login failed");
         }
-        $this->session = new SugarSession($token);
+        $this->session = new SugarSession($token, $tokens->refresh_token ?? null);
         $this->currentUser = [$username, $password];
         $this->currentUserSession = $this->session;
         return $this;
@@ -483,8 +484,32 @@ trait SugarCRMAware
         if (isset($this->session) && $this->session instanceof SugarSession) {
             $prefix = (string)$this->config->get('sidecarStoragePrefix', 'prod:SugarCRM:');
             $state['localStorage'] = [$prefix . 'AuthAccessToken' => json_encode($this->session->getAccessToken())];
+            // Sidecar refreshes the token when metadata changed (412) and logs out without a refresh token.
+            if ($this->session->getRefreshToken() !== null) {
+                $state['localStorage'][$prefix . 'AuthRefreshToken'] = json_encode($this->session->getRefreshToken());
+            }
+            $state['returnStorage'] = [$prefix . 'AuthAccessToken', $prefix . 'AuthRefreshToken'];
         }
         return $state;
+    }
+
+    /**
+     * Sidecar refreshes tokens (e.g. after a metadata change), which revokes the ones this scenario holds:
+     * adopt the browser's tokens so subsequent API calls and browser visits keep working.
+     */
+    protected function afterBrowse(array $result): void
+    {
+        $prefix = (string)$this->config->get('sidecarStoragePrefix', 'prod:SugarCRM:');
+        $access = json_decode((string)($result['storage'][$prefix . 'AuthAccessToken'] ?? 'null'), true);
+        $refresh = json_decode((string)($result['storage'][$prefix . 'AuthRefreshToken'] ?? 'null'), true);
+        if (is_string($access) && $access !== '' && isset($this->session) && $this->session instanceof SugarSession
+            && $access !== $this->session->getAccessToken()) {
+            $wasCurrent = $this->session === $this->currentUserSession;
+            $this->session = new SugarSession($access, is_string($refresh) ? $refresh : null);
+            if ($wasCurrent) {
+                $this->currentUserSession = $this->session;
+            }
+        }
     }
 
     /**

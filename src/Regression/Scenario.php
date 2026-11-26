@@ -241,7 +241,16 @@ abstract class Scenario
         }
         $options += $this->browserState($url);
         $options['markers'] ??= $this->xssMarkers;
-        return $this->lastBrowse = \Regression\Browser\Browser::instance()->visit($url, $options);
+        $this->lastBrowse = \Regression\Browser\Browser::instance()->visit($url, $options);
+        $this->afterBrowse($this->lastBrowse);
+        return $this->lastBrowse;
+    }
+
+    /**
+     * Hook to sync state changed by the page (e.g. refreshed tokens) back into this scenario.
+     */
+    protected function afterBrowse(array $result): void
+    {
     }
 
     public function getLastBrowse(): ?array
